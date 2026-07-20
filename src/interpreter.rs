@@ -277,8 +277,11 @@ impl Environment {
     fn eval_expr(&mut self, expr: &Expr) -> InterpResult<Value> {
         match expr {
             Expr::Number(n) => Ok(Value::Number(*n)),
+
             Expr::Decimal(n) => Ok(Value::Decimal(*n)),
+
             Expr::Str(s) => Ok(Value::Str(s.clone())),
+
             Expr::Bool(b) => Ok(Value::Bool(*b)),
             
             Expr::Variable(name) => {
@@ -472,6 +475,34 @@ impl Environment {
                     _ => return Err(InterpErr::Err(format!("Method '{}' not supported on this type", method_name))),
                 }
             }
+
+            Expr::ExecuteCatch(run_body, err_var, catch_body) => {
+                // Create a local scope for the execute block
+                let mut local_env = Environment::with_parent(self.clone());
+                
+                match local_env.eval_block_as_expr(run_body) {
+                    Ok(val) => return Ok(val),
+                    Err(InterpErr::Err(msg)) => {
+                        // Error caught! Create a local scope for the onError block
+                        let mut catch_env = Environment::with_parent(self.clone());
+                        
+                        // If a variable name was provided (e.g. (err)), insert the message
+                        if let Some(var_name) = err_var {
+                            catch_env.insert(var_name.clone(), VarInfo { 
+                                value: Value::Str(msg), 
+                                is_const: true 
+                            });
+                        }
+                        
+                        // Evaluate the catch block and return its value
+                        return catch_env.eval_block_as_expr(catch_body);
+                    }
+                    Err(other_err) => {
+                        // If it's a Return, Break, or Continue, let it propagate!
+                        return Err(other_err);
+                    }
+                }
+            }
         }
     }
 
@@ -500,5 +531,27 @@ impl Environment {
             Value::Null => false,
             Value::Function(_, _) | Value::Builtin(_) => true,
         }
+    }
+
+    /// Helper to evaluate a block of statements as an expression.
+    /// Returns the value of the last expression statement in the block.
+    fn eval_block_as_expr(&mut self, stmts: &[Stmt]) -> InterpResult<Value> {
+        let mut last_val = Value::Null;
+        for stmt in stmts {
+            match stmt {
+                // If it's an expression, save its value
+                Stmt::ExprStmt(expr) => last_val = self.eval_expr(expr)?,
+                // If it's a return, unwrap its value
+                Stmt::Return(expr) => {
+                    return Ok(match expr {
+                        Some(e) => self.eval_expr(e)?,
+                        None => Value::Null,
+                    });
+                }
+                // Execute other statements (like var declarations) normally, don't change last_val
+                _ => self.eval_stmt(stmt)?,
+            }
+        }
+        Ok(last_val)
     }
 }

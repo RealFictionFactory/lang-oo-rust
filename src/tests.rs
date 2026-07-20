@@ -615,3 +615,21 @@ fn test_method_calls() {
     
     assert_eq!(env.get("l").unwrap().value, crate::interpreter::Value::Number(3));
 }
+
+// Test 34: Test execute/onError error handling
+#[test]
+fn test_execute_on_error() {
+    let code = "var x = execute { 10 / 0 } onError(err) { print(\"Caught: \", err) 99 }";
+    
+    let mut lex = Lexer::new(code);
+    let tokens = lex.tokenize();
+    
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse_program().unwrap();
+    
+    let mut env = Environment::new();
+    env.run(&ast).unwrap();
+    
+    // x should be 99, because the error was caught and 99 was the last expression in onError
+    assert_eq!(env.get("x").unwrap().value, crate::interpreter::Value::Number(99));
+}

@@ -50,6 +50,9 @@ pub enum Expr {
     
     /// A method call on an object/variable using the dot notation: `arr.push(elem)`
     MethodCall(Box<Expr>, String, Vec<Expr>),
+
+    /// An error handling expression: `execute { ... } onError(err) { ... }`
+    ExecuteCatch(Vec<Stmt>, Option<String>, Vec<Stmt>),
 }
 
 /// Represents an Abstract Syntax Tree (AST) node for a Statement (Instruction).

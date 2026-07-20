@@ -19,6 +19,8 @@ pub enum Token {
     Break,
     Continue,
     Use,
+    Execute,
+    OnError,
 
     // Literals (values)
     Number(i64),
@@ -178,6 +180,8 @@ impl Lexer {
                     "break" => Token::Break,
                     "continue" => Token::Continue,
                     "use" => Token::Use,
+                    "execute" | "exec" | "exe" => Token::Execute,
+                    "onError" | "error" => Token::OnError,
                     _ => Token::Ident(ident),
                 };
                 tokens.push(token);

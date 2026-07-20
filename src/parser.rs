@@ -64,21 +64,6 @@ impl Parser {
             Some(Token::Return) => self.parse_return(),
             Some(Token::Break) => { self.next(); Ok(Stmt::Break) }
             Some(Token::Continue) => { self.next(); Ok(Stmt::Continue) }
-            
-            // If it starts with an Ident (like `x = 5` or `print(x)`), it's an assignment or expression statement
-            Some(Token::Ident(_)) => {
-                let expr = self.parse_expr()?;
-                match self.peek().cloned() {
-                    Some(Token::Assign) | Some(Token::PlusEq) | Some(Token::MinusEq) => {
-                        // It's an assignment
-                        self.parse_assign_from_expr(expr)
-                    }
-                    _ => {
-                        // It's just an expression statement (e.g., `print(x)`)
-                        Ok(Stmt::ExprStmt(expr))
-                    }
-                }
-            }
             Some(Token::Use) => {
                 self.next(); // consume 'use'
                 if let Some(Token::Ident(name)) = self.next().cloned() {
@@ -87,7 +72,19 @@ impl Parser {
                     Err("Expected module name after 'use'".to_string())
                 }
             }
-            _ => Err("Unexpected instruction".to_string()),
+            // Fallback for assignments and expression statements.
+            // Catches anything else (Ident, Number, execute, etc.)
+            _ => {
+                let expr = self.parse_expr()?;
+                match self.peek().cloned() {
+                    Some(Token::Assign) | Some(Token::PlusEq) | Some(Token::MinusEq) => {
+                        self.parse_assign_from_expr(expr)
+                    }
+                    _ => {
+                        Ok(Stmt::ExprStmt(expr))
+                    }
+                }
+            }
         }
     }
 
@@ -402,6 +399,45 @@ impl Parser {
     /// Parses the lowest level expressions: literals, variables, parentheses, arrays, and string interpolation.
     fn parse_factor(&mut self) -> Result<Expr, String> {
         let mut expr = match self.next().cloned() {
+            Some(Token::Execute) => {
+                self.skip_newlines();
+                if self.next() != Some(&Token::LBrace) {
+                    return Err("Expected '{' after 'execute'".to_string());
+                }
+                let run_body = self.parse_block()?;
+                
+                self.skip_newlines();
+                
+                // 'onError' is required for this expression
+                if self.next() != Some(&Token::OnError) {
+                    return Err("Expected 'onError' after 'execute' block".to_string());
+                }
+                
+                let mut err_var = None;
+                
+                // Optional (err) parameter
+                self.skip_newlines();
+                if self.peek() == Some(&Token::LParen) {
+                    self.next(); // consume '('
+                    if let Some(Token::Ident(name)) = self.next().cloned() {
+                        err_var = Some(name);
+                    } else {
+                        return Err("Expected error variable name in onError()".to_string());
+                    }
+                    if self.next() != Some(&Token::RParen) {
+                        return Err("Expected ')' after error variable name".to_string());
+                    }
+                }
+                
+                self.skip_newlines();
+                if self.next() != Some(&Token::LBrace) {
+                    return Err("Expected '{' after 'onError'".to_string());
+                }
+                let catch_body = self.parse_block()?;
+                
+                return Ok(Expr::ExecuteCatch(run_body, err_var, catch_body));
+            }
+
             Some(Token::Number(n)) => Expr::Number(n),
             
             Some(Token::Decimal(n)) => Expr::Decimal(n),
@@ -495,7 +531,7 @@ impl Parser {
             _ => return Err("Unexpected token in expression".to_string()),
         };
 
-        // Instead of three while loops, we use a single loop:
+        // Postfix parsing loop
         loop {
             match self.peek() {
                 // Postfix indexing: arr[0] or arr[i]
