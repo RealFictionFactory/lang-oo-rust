@@ -13,17 +13,19 @@ This is a hobbyist project created primarily for educational purposes. The main 
 * **Clean Syntax:** No semicolons required. Newlines determine the end of statements.
 * **Optional Typing:** Variables can be strictly typed with default values (`var x is Number`) or dynamically inferred (`var x = 10`).
 * **Type Promotion:** Automatic promotion from `Number` (i64) to `Decimal` (f64) in mathematical operations.
-* **Core Constructs:** `if/else if/else`, `loop` (with `break` and `continue`), and user-defined `func`tions with recursion support.
-* **Data Structures:** Arrays and String interpolation (`"Hello {name}!"`).
-* **Extension Methods:** A modular standard library system. Instead of global functions, capabilities like `input` are loaded via `use io` and called directly on objects (e.g., `0.input("Prompt: ")`).
+* **Advanced Control Flow:** 
+  * `if` can be used as a statement **and** as an expression (e.g., `var x = if cond { 1 } else { 2 }`).
+  * Versatile `loop` keyword: range loops (`loop i from 1..10`), array iteration (`loop x in arr`), and infinite loops (`loop { ... }`) with conditional `until (cond)` breaks.
+  * Logical operators (`and`, `or`, `not`) with short-circuit evaluation.
+* **Error Handling:** `execute { ... } onError(err) { ... }` blocks to catch and handle runtime errors gracefully.
+* **Data Structures:** Arrays, Dictionaries (`{"key": value}`), and String interpolation (`"Hello {name}!"`).
+* **Lightweight Standard Library:** Global functions like `print` and `input`, alongside a clean extension method system (e.g., `"text".upper()`, `input("Age: ").asNumber()`).
 
 ## Quick Example
 
 Here is a taste of what writing in "Ó" looks like:
 
 ```text
-use io
-
 // Function with recursion
 func factorial(n) {
   if n <= 1 {
@@ -32,15 +34,23 @@ func factorial(n) {
   return n * factorial(n - 1)
 }
 
-// Type-annotated variable
-var name is String
-name = "".input("What is your name? ")
-
-// Type-inferred variable with extension method
-var num = 0.input("Enter a number to calculate its factorial: ")
+// Global input function with method chaining
+var name = input("What is your name? ")
+var num = input("Enter a number to calculate its factorial: ").asNumber()
 
 print("Hello, {name}!")
-print("The factorial of {num} is {factorial(num)}")
+
+// Dictionaries and 'if' as an expression
+var user = {"name": name, "age": num}
+var status = if user["age"] >= 18 { "adult" } else { "minor" }
+print("Status: {status}")
+
+// Error handling
+var result = execute {
+  print("Factorial of {num} is {factorial(num)}")
+} onError(err) {
+  print("Something went wrong: {err}")
+}
 ```
 
 ## Architecture
@@ -50,7 +60,8 @@ The interpreter is divided into clean, separate modules:
 * `parser.rs` - Converts tokens into an Abstract Syntax Tree (AST) using Recursive Descent Parsing.
 * `ast.rs` - Definitions for AST nodes (Expressions and Statements).
 * `interpreter.rs` - Walks the AST and executes the program, managing scopes and environments.
-* `stdlib.rs` & `modules/` - The standard library and loadable extension modules (like `io`).
+* `stdlib.rs` - The standard library (global functions and extension methods).
+* `modules/` - Placeholder for future loadable extension modules.
 
 ## How to Run
 
