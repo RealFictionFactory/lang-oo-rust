@@ -1,9 +1,5 @@
 ### Mapa drogowa rozwoju języka "Ó":
 
-3. **Pętle: `loop in` oraz `while`**
-   * **Cel:** Iteracja po tablicach `loop element in moja_tablica { ... }` oraz klasyczna pętla warunkowa `while warunek { ... }`.
-   * **Jak zrobimy:** Dodamy słowo kluczowe `in` i `while`. W parserze rozgałęzimy logikę pętli. W AST dodamy `Stmt::LoopIn` i `Stmt::While`. W interpreterze zaimplementujemy iterowanie po `Value::Array` oraz sprawdzanie warunku dopóki jest prawdziwy.
-
 4. **Funkcje pierwszej klasy, Domknięcia i Lambdy (Closures)**
    * **Cel:** Przypisywanie funkcji do zmiennych `var f = func(x) { return x * 2 }` i przekazywanie ich dalej.
    * **Jak zrobimy:** W parserze pozwolimy na użycie `func` wewnątrz wyrażeń. W interpreterze naprawimy `Expr::Call`, aby potrafił wywoływać zmienne przechowujące `Value::Function`. Będzie to wymagało zmiany w środowisku, aby domknięcia "pamiętały" scope, w którym zostały stworzone.

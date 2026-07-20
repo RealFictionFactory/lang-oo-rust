@@ -42,31 +42,57 @@ let y is String = "immutable"
 var z = 3.14
 print("Variables: ", x, y, z)
 
-// 8. Test Control Flow: Loops and Conditionals
-var sum = 0
-loop i from 1..6 {
-    if i == 3 {
-        continue // Skip 3
-    }
-    if i == 5 {
-        break   // Stop at 5
-    }
-    sum += i
+// 8. Test Control Flow: 'loop in' for array iteration
+print("\n--- Looping through Array ---")
+var fruits = ["Apple", "Banana", "Cherry"]
+loop fruit in fruits {
+    print("I like ", fruit)
 }
-print("Loop sum (1+2+4) is: ", sum) // Expect 7
 
-// 9. Test Logical and Unary Operators
+// 9. Test Control Flow: 'loop {}' with a 'break'
+print("\n--- Infinite Loop with Break ---")
+var counter = 0
+loop {
+    if counter >= 3 {
+        break
+    }
+    print("Counter is: ", counter)
+    counter += 1
+}
+
+// 10. Test Control Flow: 'until' at the top (acts like 'while not')
+// If condition is true immediately, the block should not execute at all.
+print("\n--- Until at Top ---")
+var start_val = 10
+var exec_count = 0
+loop {
+    until (start_val > 5) // 10 > 5 is true, so it breaks immediately
+    exec_count += 1
+}
+print("Exec count (should be 0): ", exec_count)
+
+// 11. Test Control Flow: 'until' at the bottom (acts like 'do-while not')
+// The block should execute at least once before checking the condition.
+print("\n--- Until at Bottom ---")
+var pass = ""
+loop {
+    pass = input("Enter password (hint: 123): ")
+    until (pass == "123") // Checks AFTER executing the block
+}
+print("Access granted!")
+
+// 12. Test Logical and Unary Operators
 var a = true and false
 var b = true or false
 var c = not false
 var d = -10 + 5
-print("Logical/Unary: ", a, b, c, d)
+print("\nLogical/Unary: ", a, b, c, d)
 
-// 10. Test 'if' as an Expression
+// 13. Test 'if' as an Expression
 var status = if age >= 18 { "adult" } else { "minor" }
 print("Status: ", status)
 
-// 11. Test Error Handling (execute / onError)
+// 14. Test Error Handling (execute / onError)
 var result = execute {
     var bad_math = 100 / 0
     bad_math
@@ -76,7 +102,7 @@ var result = execute {
 }
 print("Error handling result: ", result)
 
-// 12. Test Functions and Recursion
+// 15. Test Functions and Recursion
 func factorial(n) {
     if n <= 1 {
         return 1
@@ -85,6 +111,6 @@ func factorial(n) {
 }
 print("Factorial of 5 is: ", factorial(5))
 
-// 13. Test String Interpolation
+// 16. Test String Interpolation
 var lang = "Ó"
 print("Language {lang} is at version {1 + 0.0}!")

@@ -57,12 +57,32 @@ impl Parser {
     fn parse_stmt(&mut self) -> Result<Stmt, String> {
         match self.peek() {
             Some(Token::Var) => self.parse_var_decl(),
+            
             Some(Token::Let) => self.parse_let(),
+            
             Some(Token::Loop) => self.parse_loop(),
+            
             Some(Token::Func) => self.parse_func_decl(),
+            
             Some(Token::Return) => self.parse_return(),
+            
             Some(Token::Break) => { self.next(); Ok(Stmt::Break) }
+            
             Some(Token::Continue) => { self.next(); Ok(Stmt::Continue) }
+            
+            Some(Token::Until) => {
+                self.next(); // consume 'until'
+                // Oczekujemy nawiasów: until (warunek)
+                if self.next() != Some(&Token::LParen) {
+                    return Err("Expected '(' after 'until'".to_string());
+                }
+                let condition = self.parse_expr()?;
+                if self.next() != Some(&Token::RParen) {
+                    return Err("Expected ')' after until condition".to_string());
+                }
+                Ok(Stmt::Until(condition))
+            }
+
             Some(Token::Use) => {
                 self.next(); // consume 'use'
                 if let Some(Token::Ident(name)) = self.next().cloned() {
@@ -71,6 +91,7 @@ impl Parser {
                     Err("Expected module name after 'use'".to_string())
                 }
             }
+
             // Fallback for assignments and expression statements.
             // Catches anything else (Ident, Number, execute, etc.)
             _ => {
@@ -153,26 +174,46 @@ impl Parser {
         Ok(Stmt::Let(name, type_name, init_expr))
     }
 
-    /// Parses a loop statement: `loop i from start..end { ... }`
+    /// Parses all loop variants: `loop i from..`, `loop x in arr`, `loop { ... }`
     fn parse_loop(&mut self) -> Result<Stmt, String> {
         self.next(); // consume 'loop'
         
+        // Wariant 1: loop { ... } (pętla nieskończona/do-while)
+        if self.peek() == Some(&Token::LBrace) {
+            self.next(); // consume '{'
+            let body = self.parse_block()?;
+            return Ok(Stmt::LoopBlock(body));
+        }
+        
+        // Zmienna iteracyjna (dla from i dla in)
         let var_name = if let Some(Token::Ident(name)) = self.next().cloned() {
             name
         } else {
             return Err("Expected variable name after 'loop'".to_string());
         };
 
+        // Wariant 2: loop element in array { ... }
+        if self.peek() == Some(&Token::In) {
+            self.next(); // consume 'in'
+            let iterable_expr = self.parse_expr()?;
+            
+            self.skip_newlines();
+            if self.next() != Some(&Token::LBrace) {
+                return Err("Expected '{' after array in loop".to_string());
+            }
+            let body = self.parse_block()?;
+            return Ok(Stmt::LoopIn(var_name, iterable_expr, body));
+        }
+
+        // Wariant 3: loop i from start..end { ... } (obecna logika)
         if self.next() != Some(&Token::From) {
-            return Err("Expected 'from' keyword in loop".to_string());
+            return Err("Expected 'from', 'in' or '{' in loop".to_string());
         }
 
         let start_expr = self.parse_expr()?;
-
         if self.next() != Some(&Token::Range) {
             return Err("Expected '..' in loop".to_string());
         }
-
         let end_expr = self.parse_expr()?;
 
         self.skip_newlines();

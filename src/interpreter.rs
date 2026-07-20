@@ -251,6 +251,61 @@ impl Environment {
                 return Err(InterpErr::Return(val));
             }
 
+            // 'until' działa jak break, ale tylko jeśli warunek jest prawdziwy
+            Stmt::Until(condition) => {
+                let cond_val = self.eval_expr(condition)?;
+                if self.is_truthy(&cond_val) {
+                    return Err(InterpErr::Break);
+                }
+            }
+
+            // Nieskończona pętla: loop { ... }
+            Stmt::LoopBlock(body) => {
+                loop {
+                    let mut should_break = false;
+                    for s in body {
+                        match self.eval_stmt(s) {
+                            Ok(_) => {}
+                            // Until i Break zwracają ten sam błąd
+                            Err(InterpErr::Break) => {
+                                should_break = true;
+                                break;
+                            }
+                            Err(InterpErr::Continue) => {
+                                // Continue przerywa obecną iterację pętli for
+                                break; 
+                            }
+                            Err(InterpErr::Return(v)) => return Err(InterpErr::Return(v)),
+                            Err(InterpErr::Err(e)) => return Err(InterpErr::Err(e)),
+                        }
+                    }
+                    if should_break {
+                        break;
+                    }
+                }
+            }
+
+            // Pętla po tablicy: loop element in array { ... }
+            Stmt::LoopIn(var_name, iterable_expr, body) => {
+                let iterable_val = self.eval_expr(iterable_expr)?;
+                if let Value::Array(arr) = iterable_val {
+                    'outer: for element in arr {
+                        self.insert(var_name.clone(), VarInfo { value: element, is_const: false });
+                        for s in body {
+                            match self.eval_stmt(s) {
+                                Ok(_) => {}
+                                Err(InterpErr::Continue) => continue 'outer,
+                                Err(InterpErr::Break) => break 'outer,
+                                Err(InterpErr::Return(v)) => return Err(InterpErr::Return(v)),
+                                Err(InterpErr::Err(e)) => return Err(InterpErr::Err(e)),
+                            }
+                        }
+                    }
+                } else {
+                    return Err(InterpErr::Err("'loop in' only works with Arrays".to_string()));
+                }
+            }
+
             Stmt::Break => return Err(InterpErr::Break),
 
             Stmt::Continue => return Err(InterpErr::Continue),

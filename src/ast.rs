@@ -95,7 +95,17 @@ pub enum Stmt {
     
     /// A for-loop iterating over a range of numbers: `loop i from start..end { body }`
     Loop(String, Expr, Expr, Vec<Stmt>),
+
+    /// An infinite loop: `loop { ... }`
+    LoopBlock(Vec<Stmt>),
     
+    /// A loop iterating over an array: `loop element in array { ... }`
+    LoopIn(String, Expr, Vec<Stmt>),
+    
+    /// A conditional break statement inside a loop: `until (condition)`
+    /// Breaks the loop if the condition is true.
+    Until(Expr),
+
     /// A function declaration: `func name(parameters) { body }`
     FuncDecl(String, Vec<String>, Vec<Stmt>),
     

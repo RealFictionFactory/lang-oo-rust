@@ -769,3 +769,75 @@ fn test_unary_minus() {
     assert_eq!(env.get("c").unwrap().value, crate::interpreter::Value::Number(5));
     assert_eq!(env.get("d").unwrap().value, crate::interpreter::Value::Decimal(-3.14));
 }
+
+// Test 42: Test 'loop in' for array iteration
+#[test]
+fn test_loop_in_array() {
+    let code = "var arr = [10, 20, 30]\nvar sum = 0\nloop x in arr { sum += x }";
+    
+    let mut lex = Lexer::new(code);
+    let tokens = lex.tokenize();
+    
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse_program().unwrap();
+    
+    let mut env = Environment::new();
+    env.run(&ast).unwrap();
+    
+    assert_eq!(env.get("sum").unwrap().value, crate::interpreter::Value::Number(60));
+}
+
+// Test 43: Test infinite 'loop {}' with a 'break'
+#[test]
+fn test_loop_block_break() {
+    let code = "var i = 0\nvar count = 0\nloop {\nif i >= 5 { break }\ncount += 1\ni += 1\n}";
+    
+    let mut lex = Lexer::new(code);
+    let tokens = lex.tokenize();
+    
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse_program().unwrap();
+    
+    let mut env = Environment::new();
+    env.run(&ast).unwrap();
+    
+    assert_eq!(env.get("count").unwrap().value, crate::interpreter::Value::Number(5));
+}
+
+// Test 44: Test 'until' at the top (acts like 'while not')
+// If condition is true immediately, the block should not execute at all.
+#[test]
+fn test_until_at_top() {
+    let code = "var i = 10\nvar count = 0\nloop {\nuntil (i > 5)\ncount += 1\n}";
+    
+    let mut lex = Lexer::new(code);
+    let tokens = lex.tokenize();
+    
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse_program().unwrap();
+    
+    let mut env = Environment::new();
+    env.run(&ast).unwrap();
+    
+    // i is 10, so (i > 5) is true. The loop breaks before incrementing count.
+    assert_eq!(env.get("count").unwrap().value, crate::interpreter::Value::Number(0));
+}
+
+// Test 45: Test 'until' at the bottom (acts like 'do-while not')
+// The block should execute at least once before checking the condition.
+#[test]
+fn test_until_at_bottom() {
+    let code = "var i = 10\nvar count = 0\nloop {\ncount += 1\ni += 1\nuntil (i > 5)\n}";
+    
+    let mut lex = Lexer::new(code);
+    let tokens = lex.tokenize();
+    
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse_program().unwrap();
+    
+    let mut env = Environment::new();
+    env.run(&ast).unwrap();
+    
+    // i is 10. count becomes 1. i becomes 11. until (11 > 5) is true -> breaks.
+    assert_eq!(env.get("count").unwrap().value, crate::interpreter::Value::Number(1));
+}
