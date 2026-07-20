@@ -192,20 +192,6 @@ impl Environment {
                 self.eval_expr(expr)?;
             }
 
-            Stmt::If(condition, if_body, else_body) => {
-                let cond_value = self.eval_expr(condition)?;
-                // Use truthiness instead of strict Bool matching
-                if self.is_truthy(&cond_value) {
-                    for s in if_body {
-                        self.eval_stmt(s)?;
-                    }
-                } else {
-                    for s in else_body {
-                        self.eval_stmt(s)?;
-                    }
-                }
-            }
-
             Stmt::Loop(var_name, start_expr, end_expr, body) => {
                 let start_val = self.eval_expr(start_expr)?;
                 let end_val = self.eval_expr(end_expr)?;
@@ -476,31 +462,36 @@ impl Environment {
                 }
             }
 
+            // Executes the run_body. If a runtime error (Err) occurs, it catches it,
+            // binds the error message to the err_var (if provided) in the current scope,
+            // and executes the catch_body. Other control flow errors (Return, Break, Continue) propagate up.
             Expr::ExecuteCatch(run_body, err_var, catch_body) => {
-                // Create a local scope for the execute block
-                let mut local_env = Environment::with_parent(self.clone());
-                
-                match local_env.eval_block_as_expr(run_body) {
+                match self.eval_block_as_expr(run_body) {
                     Ok(val) => return Ok(val),
                     Err(InterpErr::Err(msg)) => {
-                        // Error caught! Create a local scope for the onError block
-                        let mut catch_env = Environment::with_parent(self.clone());
-                        
-                        // If a variable name was provided (e.g. (err)), insert the message
                         if let Some(var_name) = err_var {
-                            catch_env.insert(var_name.clone(), VarInfo { 
+                            self.insert(var_name.clone(), VarInfo { 
                                 value: Value::Str(msg), 
                                 is_const: true 
                             });
                         }
-                        
-                        // Evaluate the catch block and return its value
-                        return catch_env.eval_block_as_expr(catch_body);
+                        return self.eval_block_as_expr(catch_body);
                     }
                     Err(other_err) => {
-                        // If it's a Return, Break, or Continue, let it propagate!
                         return Err(other_err);
                     }
+                }
+            }
+
+            // Evaluates the condition. If truthy, evaluates and returns the if_body.
+            // Otherwise, evaluates and returns the else_body.
+            // Works in the current scope to allow variable reassignment inside the blocks.
+            Expr::If(condition, if_body, else_body) => {
+                let cond_value = self.eval_expr(condition)?;
+                if self.is_truthy(&cond_value) {
+                    return self.eval_block_as_expr(if_body);
+                } else {
+                    return self.eval_block_as_expr(else_body);
                 }
             }
         }
@@ -535,20 +526,17 @@ impl Environment {
 
     /// Helper to evaluate a block of statements as an expression.
     /// Returns the value of the last expression statement in the block.
+    /// If a Return statement is encountered, it returns Err(InterpErr::Return(v)), 
+    /// which correctly propagates up via the `?` operator so the function exits properly.
     fn eval_block_as_expr(&mut self, stmts: &[Stmt]) -> InterpResult<Value> {
         let mut last_val = Value::Null;
         for stmt in stmts {
             match stmt {
                 // If it's an expression, save its value
                 Stmt::ExprStmt(expr) => last_val = self.eval_expr(expr)?,
-                // If it's a return, unwrap its value
-                Stmt::Return(expr) => {
-                    return Ok(match expr {
-                        Some(e) => self.eval_expr(e)?,
-                        None => Value::Null,
-                    });
-                }
-                // Execute other statements (like var declarations) normally, don't change last_val
+                // Execute other statements (including Return, VarDecl, etc.) normally.
+                // If it's a Return, it will return Err(InterpErr::Return(v)), which will
+                // propagate up via the `?` operator!
                 _ => self.eval_stmt(stmt)?,
             }
         }

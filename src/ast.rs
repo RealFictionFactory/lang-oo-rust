@@ -45,6 +45,10 @@ pub enum Expr {
     /// An array index access: `arr[0]`
     IndexGet(Box<Expr>, Box<Expr>),
     
+    /// An if expression: `if condition { if_body } else { else_body }`
+    /// Returns the value of the last expression in the executed block.
+    If(Box<Expr>, Vec<Stmt>, Vec<Stmt>),
+
     /// A standard function call: `add(1, 2)`
     Call(Box<Expr>, Vec<Expr>),
     
@@ -76,9 +80,6 @@ pub enum Stmt {
     
     /// An expression used as a standalone statement (e.g., `print(x)`)
     ExprStmt(Expr),
-    
-    /// A conditional statement: `if (condition) { if_body } else { else_body }`
-    If(Expr, Vec<Stmt>, Vec<Stmt>),
     
     /// A for-loop iterating over a range of numbers: `loop i from start..end { body }`
     Loop(String, Expr, Expr, Vec<Stmt>),

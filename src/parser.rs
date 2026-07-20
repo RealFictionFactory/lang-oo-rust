@@ -58,7 +58,6 @@ impl Parser {
         match self.peek() {
             Some(Token::Var) => self.parse_var_decl(),
             Some(Token::Let) => self.parse_let(),
-            Some(Token::If) => self.parse_if(),
             Some(Token::Loop) => self.parse_loop(),
             Some(Token::Func) => self.parse_func_decl(),
             Some(Token::Return) => self.parse_return(),
@@ -152,46 +151,6 @@ impl Parser {
         }
 
         Ok(Stmt::Let(name, type_name, init_expr))
-    }
-
-    /// Parses an if/else statement: `if condition { ... } else { ... }`
-    fn parse_if(&mut self) -> Result<Stmt, String> {
-        self.next(); // consume 'if'
-        let condition = self.parse_expr()?;
-        
-        self.skip_newlines();
-        if self.next() != Some(&Token::LBrace) {
-            return Err("Expected '{' after if condition".to_string());
-        }
-        
-        let if_body = self.parse_block()?;
-        
-        // --- LOGIC FOR ELSE ---
-        // Skip newlines because someone might write `} \n else`
-        self.skip_newlines();
-        
-        let mut else_body = Vec::new();
-        
-        // Check if the word 'else' appears after the if block
-        if self.peek() == Some(&Token::Else) {
-            self.next(); // consume 'else'
-            
-            // Handling "else if" - very easy with recursion!
-            // If 'if' follows 'else', we parse it as a single statement in the else block
-            if self.peek() == Some(&Token::If) {
-                let nested_if = self.parse_if()?;
-                else_body.push(nested_if);
-            } else {
-                // Standard 'else { ... }'
-                self.skip_newlines();
-                if self.next() != Some(&Token::LBrace) {
-                    return Err("Expected '{' after 'else'".to_string());
-                }
-                else_body = self.parse_block()?;
-            }
-        }
-        
-        Ok(Stmt::If(condition, if_body, else_body))
     }
 
     /// Parses a loop statement: `loop i from start..end { ... }`
@@ -399,6 +358,38 @@ impl Parser {
     /// Parses the lowest level expressions: literals, variables, parentheses, arrays, and string interpolation.
     fn parse_factor(&mut self) -> Result<Expr, String> {
         let mut expr = match self.next().cloned() {
+            Some(Token::If) => {
+                let condition = self.parse_expr()?;
+                
+                self.skip_newlines();
+                if self.next() != Some(&Token::LBrace) {
+                    return Err("Expected '{' after if condition".to_string());
+                }
+                let if_body = self.parse_block()?;
+                
+                // --- LOGIC FOR ELSE ---
+                self.skip_newlines();
+                let mut else_body = Vec::new();
+                
+                if self.peek() == Some(&Token::Else) {
+                    self.next(); // consume 'else'
+                    self.skip_newlines();
+                    
+                    if self.peek() == Some(&Token::If) {
+                        // 'else if' - rekurencja! Sparsuj kolejnego ifa jako wyrażenie
+                        let nested_if_expr = self.parse_expr()?;
+                        else_body.push(Stmt::ExprStmt(nested_if_expr));
+                    } else {
+                        if self.next() != Some(&Token::LBrace) {
+                            return Err("Expected '{' after 'else'".to_string());
+                        }
+                        else_body = self.parse_block()?;
+                    }
+                }
+                
+                return Ok(Expr::If(Box::new(condition), if_body, else_body));
+            }
+
             Some(Token::Execute) => {
                 self.skip_newlines();
                 if self.next() != Some(&Token::LBrace) {

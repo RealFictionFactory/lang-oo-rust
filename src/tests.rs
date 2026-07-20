@@ -5,7 +5,7 @@
 use crate::lexer::{Lexer, Token};
 use crate::parser::Parser;
 use crate::interpreter::Environment;
-use crate::ast::Stmt;
+use crate::ast::{Expr, Stmt};
 
 // Test 1: Check if the lexer correctly splits the code into tokens
 #[test]
@@ -86,12 +86,12 @@ fn test_parser_if_else_ast() {
     
     assert_eq!(ast.len(), 1);
     match &ast[0] {
-        Stmt::If(_, if_body, else_body) => {
-            // Check if both blocks have one statement each (print)
+        // CHANGE: Now 'if' is wrapped in ExprStmt
+        Stmt::ExprStmt(Expr::If(_, if_body, else_body)) => {
             assert_eq!(if_body.len(), 1, "The 'if' block should have 1 statement");
             assert_eq!(else_body.len(), 1, "The 'else' block should have 1 statement");
         }
-        _ => panic!("Expected a Stmt::If node, got something else!"),
+        _ => panic!("Expected a Stmt::ExprStmt(Expr::If) node, got something else!"),
     }
 }
 
@@ -632,4 +632,39 @@ fn test_execute_on_error() {
     
     // x should be 99, because the error was caught and 99 was the last expression in onError
     assert_eq!(env.get("x").unwrap().value, crate::interpreter::Value::Number(99));
+}
+
+// Test 35: Test if as an expression
+#[test]
+fn test_if_as_expression() {
+    let code = "var x = 5\nvar y = if x > 3 { \"big\" } else { \"small\" }";
+    
+    let mut lex = Lexer::new(code);
+    let tokens = lex.tokenize();
+    
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse_program().unwrap();
+    
+    let mut env = Environment::new();
+    env.run(&ast).unwrap();
+    
+    assert_eq!(env.get("y").unwrap().value, crate::interpreter::Value::Str("big".to_string()));
+}
+
+// Test 36: Test 'return if {} else {}' inside a function
+#[test]
+fn test_return_if_expression() {
+    let code = "func check(n) { return if n > 0 { \"positive\" } else { \"zero or negative\" } }\nvar x = check(5)\nvar y = check(-2)";
+    
+    let mut lex = Lexer::new(code);
+    let tokens = lex.tokenize();
+    
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse_program().unwrap();
+    
+    let mut env = Environment::new();
+    env.run(&ast).unwrap();
+    
+    assert_eq!(env.get("x").unwrap().value, crate::interpreter::Value::Str("positive".to_string()));
+    assert_eq!(env.get("y").unwrap().value, crate::interpreter::Value::Str("zero or negative".to_string()));
 }
