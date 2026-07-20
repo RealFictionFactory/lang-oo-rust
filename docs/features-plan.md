@@ -4,10 +4,6 @@
    * **Cel:** Przypisywanie funkcji do zmiennych `var f = func(x) { return x * 2 }` i przekazywanie ich dalej.
    * **Jak zrobimy:** W parserze pozwolimy na użycie `func` wewnątrz wyrażeń. W interpreterze naprawimy `Expr::Call`, aby potrafił wywoływać zmienne przechowujące `Value::Function`. Będzie to wymagało zmiany w środowisku, aby domknięcia "pamiętały" scope, w którym zostały stworzone.
 
-5. **Słowniki / Mapy (Hash Maps)**
-   * **Cel:** Struktury klucz-wartość: `var user = {"name": "Jan", "age": 30}`.
-   * **Jak zrobimy:** Najtrudniejsza zmiana w parserze, bo klamry `{}` są już używane do bloków kodu. W `parse_factor` będziemy musieli sprawdzić kontekst (czy jest dwukropek `:`). Dodamy `Value::Dict(HashMap<String, Value>)` i rozszerzymy `Expr::IndexGet`, żeby działało ze stringami jako kluczami.
-
 6. **Egzekwowanie typów (Runtime Type Checking)**
    * **Cel:** Sprawdzanie typów w czasie wykonania: `var x is Number = "string"` wyrzuci błąd.
    * **Jak zrobimy:** W interpreterze, podczas `Stmt::VarDecl` i `Stmt::Let`, jeśli podano `type_name`, sprawdzimy czy zewaluowana wartość pasuje do zadeklarowanego typu przed wstawieniem jej do środowiska.

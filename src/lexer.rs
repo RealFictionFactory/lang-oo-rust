@@ -26,6 +26,7 @@ pub enum Token {
     Use,
     Execute,
     OnError,
+    Colon,      // :
 
     // Literals (values)
     Number(i64),
@@ -295,6 +296,7 @@ impl Lexer {
                         tokens.push(Token::Dot);
                     }
                 }
+                ':' => tokens.push(Token::Colon),
                 _ => panic!("Unknown character: {}", ch),
             }
         }

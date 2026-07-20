@@ -576,6 +576,35 @@ impl Parser {
                 e
             }
 
+            // Dictionary literal: {"key": value, ...}
+            Some(Token::LBrace) => {
+                let mut pairs = Vec::new();
+                
+                // Handle empty dict {}
+                if self.peek() == Some(&Token::RBrace) {
+                    self.next(); // consume '}'
+                } else {
+                    loop {
+                        // Key must be an expression (usually a String literal)
+                        let key = self.parse_expr()?;
+                        
+                        if self.next() != Some(&Token::Colon) {
+                            return Err("Expected ':' after dictionary key".to_string());
+                        }
+                        
+                        let value = self.parse_expr()?;
+                        pairs.push((key, value));
+                        
+                        match self.next() {
+                            Some(Token::Comma) => continue,
+                            Some(Token::RBrace) => break,
+                            _ => return Err("Expected ',' or '}' in dictionary literal".to_string()),
+                        }
+                    }
+                }
+                Expr::Dict(pairs)
+            }
+
             // Array literal: [1, 2, 3]
             Some(Token::LBracket) => {
                 let mut elements = Vec::new();
@@ -596,6 +625,7 @@ impl Parser {
                 }
                 Expr::Array(elements)
             }
+
             _ => return Err("Unexpected token in expression".to_string()),
         };
 

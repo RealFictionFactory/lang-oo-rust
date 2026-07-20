@@ -61,6 +61,9 @@ pub enum Expr {
     /// Returns the value of the last expression in the executed block.
     If(Box<Expr>, Vec<Stmt>, Vec<Stmt>),
 
+    /// A dictionary literal: `{"key": value, "key2": value2}`
+    Dict(Vec<(Expr, Expr)>),
+
     /// A standard function call: `add(1, 2)`
     Call(Box<Expr>, Vec<Expr>),
     

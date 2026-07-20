@@ -1,71 +1,95 @@
-# Język "Ó" - Dokumentacja Składni
+# Ó Language - Syntax Documentation
 
-"Ó" to prosty, dynamicznie typowany język programowania z naturą zbliżoną do skryptowych. Został zaprojektowany z myślą o czytelności, braku "boilerplate'u" (np. średników) i naturalnym brzmieniu.
+"Ó" is a simple, dynamically typed programming language with a scripting nature. It was designed with readability in mind, avoiding boilerplate (like semicolons) and sounding natural.
 
-## 1. Podstawy
-*   **Brak średników:** Koniec linii oznacza koniec instrukcji. Puste linie są ignorowane.
-*   **Komentarze:** Rozpoczynają się od `//` i trwają do końca linii.
-*   **Bloki kodu:** Ograniczone klamrami `{ ... }`. Klamra otwierająca może być w nowej linii.
+## 1. Basics
+*   **No Semicolons:** End of line means end of statement. Blank lines are ignored.
+*   **Comments:** Start with `//` and continue to the end of the line.
+*   **Code Blocks:** Enclosed in braces `{ ... }`. The opening brace can be on a new line.
 
-## 2. Typy Danych
-Język posiada wbudowane typy, które można podawać opcjonalnie przy deklaracji:
-*   `Number` - liczba całkowita (64-bitowa).
-*   `Decimal` - liczba zmiennoprzecinkowa (64-bitowa).
-*   `String` - ciąg znaków w podwójnych cudzysłowach.
-*   `Bool` - wartość logiczna `true` lub `false`.
-*   `Array` - tablica elementów.
-*   `Null` - brak wartości (zwracany np. przez funkcje bez `return`).
+## 2. Data Types
+The language has built-in types that can be optionally specified during declaration:
+*   `Number` - 64-bit integer.
+*   `Decimal` - 64-bit floating-point number.
+*   `String` - Text enclosed in double quotes.
+*   `Bool` - Logical value `true` or `false`.
+*   `Array` - Array of elements.
+*   `Dict` - A collection of key-value pairs where keys are Strings. Created using braces `{"key": value}`.
+*   `Null` - Absence of a value (returned e.g., by functions without a `return` statement).
 
-## 3. Zmienne i Stałe
-Deklaracja używa słów kluczowych `var` (zmienne) i `let` (stałe). Można podać typ używając `is Type`, co nada domyślną wartość (0 dla liczb, `false` dla Bool, `""` dla String).
+## 3. Variables and Constants
+Declarations use the `var` (mutable) and `let` (immutable) keywords. You can specify the type using `is Type`, which assigns a default value (`0` for numbers, `false` for Bool, `""` for String).
 
 ```text
 var x = 10
 let pi = 3.14
-var name is String  // domyślnie ""
-var counter is Number // domyślnie 0
+var name is String  // defaults to ""
+var counter is Number // defaults to 0
 ```
 
-## 4. Operatory
-*   **Matematyczne:** `+`, `-`, `*`, `/`, `%` (modulo).
-*   **Porównania:** `==`, `!=`, `>`, `<`, `>=`, `<=`.
-*   **Przypisania:** `=`, `+=`, `-=`.
+## 4. Operators
+*   **Arithmetic:** `+`, `-`, `*`, `/`, `%` (modulo).
+*   **Unary:** `-` (negation, e.g., `-5`), `not` (logical negation, e.g., `not true`).
+*   **Logical:** `and`, `or` (support short-circuit evaluation).
+*   **Comparison:** `==`, `!=`, `>`, `<`, `>=`, `<=`.
+*   **Assignment:** `=`, `+=`, `-=`.
 
-*Konkatenacja:* Operator `+` łączy stringi. Jeśli połączysz String z Number/Decimal, liczba zostanie automatycznie zamieniona na tekst.
+*Concatenation:* The `+` operator concatenates strings. If you concatenate a String with a Number/Decimal, the number is automatically converted to text.
 
-## 5. Instrukcje Warunkowe (`if` / `else`)
+## 5. Conditional Statements (`if` / `else`)
+`if` can be used as a standard statement or as an expression that returns a value.
+
 ```text
 var x = 5
 if x > 10 {
-  print("Dużo")
+  print("A lot")
 } else if x == 5 {
-  print("Pięć")
+  print("Five")
 } else {
-  print("Mało")
+  print("A little")
 }
+
+// if as an expression
+var status = if x > 10 { "big" } else { "small" }
 ```
-*Prawdziwość (Truthiness):* W warunkach `if`, wartość `0`, `0.0`, `""` (pusty string) i `false` są traktowane jako fałsz. Wszystko inne to prawda.
+*Truthiness:* In conditions, the values `0`, `0.0`, `""` (empty string), and `false` are treated as false. Everything else evaluates to true.
 
-## 6. Pętle (`loop`)
-Pętla iteruje po liczbach całkowitych (Number). Wykorzystuje słowo kluczowe `from` i zakres `..`.
+## 6. Loops (`loop`)
+The `loop` keyword is highly versatile and supports multiple variants:
 
+### Range Loop
+Iterates over integer values (`Number`). Uses the `from` keyword and the `..` range operator.
 ```text
 loop i from 1..5 {
-  if i == 3 {
-    continue // pomija 3
-  }
+  if i == 3 { continue } // skips 3
   print(i)
-}
-
-loop j from 0..10 {
-  if j == 5 {
-    break // przerywa pętlę
-  }
 }
 ```
 
-## 7. Funkcje
-Definiowane słowem kluczowym `func`. Mogą zwracać wartość używając `return`. Obsługują rekurencję i mają własny zakres zmiennych (zmienne wewnątrz funkcji nie psują zmiennych globalnych).
+### Array Iteration Loop
+Iterates over elements of an array. Uses the `in` keyword.
+```text
+var arr = [10, 20, 30]
+loop element in arr {
+  print(element)
+}
+```
+
+### Infinite / Conditional Loop (`loop {}` and `until`)
+A simple `loop {}` creates an infinite loop. It can be terminated using `break`, or conditionally terminated using `until (condition)`.
+`until` acts as a conditional `break`. If placed at the top of the block, it acts like `while not`. If placed at the bottom, it acts like `do-while not`.
+
+```text
+// Acts like a do-while loop
+var pass = ""
+loop {
+  pass = input("Enter password: ")
+  until (pass == "secret") // Checks at the bottom
+}
+```
+
+## 7. Functions
+Defined using the `func` keyword. They can return a value using `return`. They support recursion and have their own local scope (variables inside a function do not overwrite global variables).
 
 ```text
 func add(a, b) {
@@ -82,8 +106,8 @@ func factorial(n) {
 print(factorial(5)) // 120
 ```
 
-## 8. Tablice
-Tworzone nawiasami kwadratowymi `[]`. Indeksowane od `0`.
+## 8. Arrays
+Created using square brackets `[]`. Indexed from `0`.
 
 ```text
 var arr = [1, 2, 3]
@@ -91,14 +115,70 @@ arr[0] = 99
 print(arr[0]) // 99
 ```
 
-## 9. String Interpolation
-Stringi mogą zawierać wyrażenia wewnątrz `{...}`. Zostaną one obliczone i wklejone w tekst.
+## 9. Dictionaries (Maps)
+Created using braces `{}` with string keys. Accessed and mutated using square brackets `[]`.
 
 ```text
-var name = "Świecie"
-var x = 5
-print("Witaj {name}! Wynik to {x + 5}") // Witaj Świecie! Wynik to 10
+var user = {"name": "Jan", "age": 30}
+print(user["name"]) // Jan
+user["age"] = 31
+print(user) // {"name": "Jan", "age": 31}
 ```
 
-## 10. Wbudowane Funkcje
-*   `print(...args)` - Wypisuje argumenty na ekran oddzielone spacją.
+## 10. String Interpolation
+Strings can contain expressions inside `{...}`. They will be evaluated and interpolated into the text.
+
+```text
+var name = "World"
+var x = 5
+print("Hello {name}! The result is {x + 5}") // Hello World! The result is 10
+```
+
+## 11. Error Handling (`execute` / `onError`)
+Runtime errors (like division by zero or missing variables) can be caught using the `execute` / `onError` expression. It attempts to run the first block. If an error occurs, it catches it, binds the error message to a variable, and runs the second block.
+
+```text
+var result = execute {
+    10 / 0
+} onError(err) {
+    print("Caught an error: ", err)
+    -1 // Return a fallback value
+}
+print(result) // -1
+```
+
+## 12. Built-in Functions and Extensions
+
+### Global Functions
+*   `print(...args)` - Prints arguments to the screen separated by spaces.
+*   `input(prompt)` - Displays the prompt and waits for user input. Always returns a `String`.
+
+### Extension Methods
+Extension methods can be chained to values.
+
+**String Conversions:**
+*   `.asNumber()` - Converts a String to a `Number` (integer).
+*   `.asDecimal()` - Converts a String to a `Decimal` (float).
+*   `.asBoolean()` - Converts a String to a `Bool` (recognizes "true"/"1" as true, "false"/"0" as false).
+
+**String Methods:**
+*   `.upper()` - Returns the string in uppercase.
+*   `.lower()` - Returns the string in lowercase.
+
+**Array & String Shared Methods:**
+*   `.length()` - Returns the length of a String (character count) or an Array (element count).
+
+**Array Methods:**
+*   `.push(element)` - Adds an element to the end of the array (mutates the array in place).
+
+### Example Usage of Input and Extensions:
+```text
+var name = input("What is your name? ")
+print("Hello, ", name, "!")
+
+var age = input("Enter your age: ").asNumber()
+print("Next year you will be ", age + 1, " years old.")
+
+let shout = input("Say something quietly: ").upper()
+print("SHOUTING: ", shout)
+```

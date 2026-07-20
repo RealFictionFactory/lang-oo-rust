@@ -841,3 +841,79 @@ fn test_until_at_bottom() {
     // i is 10. count becomes 1. i becomes 11. until (11 > 5) is true -> breaks.
     assert_eq!(env.get("count").unwrap().value, crate::interpreter::Value::Number(1));
 }
+
+// Test 46: Test dictionary creation and access
+#[test]
+fn test_dictionary_access() {
+    let code = "var user = {\"name\": \"Jan\", \"age\": 30}\nvar n = user[\"name\"]\nvar a = user[\"age\"]";
+    
+    let mut lex = Lexer::new(code);
+    let tokens = lex.tokenize();
+    
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse_program().unwrap();
+    
+    let mut env = Environment::new();
+    env.run(&ast).unwrap();
+    
+    assert_eq!(env.get("n").unwrap().value, crate::interpreter::Value::Str("Jan".to_string()));
+    assert_eq!(env.get("a").unwrap().value, crate::interpreter::Value::Number(30));
+}
+
+// Test 47: Test dictionary mutation
+#[test]
+fn test_dictionary_mutation() {
+    let code = "var config = {\"debug\": false}\nconfig[\"debug\"] = true";
+    
+    let mut lex = Lexer::new(code);
+    let tokens = lex.tokenize();
+    
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse_program().unwrap();
+    
+    let mut env = Environment::new();
+    env.run(&ast).unwrap();
+    
+    let config_val = &env.get("config").unwrap().value;
+    if let crate::interpreter::Value::Dict(map) = config_val {
+        assert_eq!(map.get("debug").unwrap(), &crate::interpreter::Value::Bool(true));
+    } else {
+        panic!("Variable config should be a dictionary");
+    }
+}
+
+// Test 48: Test missing key error
+#[test]
+fn test_dictionary_missing_key_fails() {
+    let code = "var user = {\"name\": \"Jan\"}\nvar x = user[\"age\"]";
+    
+    let mut lex = Lexer::new(code);
+    let tokens = lex.tokenize();
+    
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse_program().unwrap();
+    
+    let mut env = Environment::new();
+    let result = env.run(&ast);
+    
+    assert!(result.is_err(), "Accessing a missing key should throw an error");
+    assert_eq!(result.unwrap_err(), "Key 'age' not found in dictionary");
+}
+
+// Test 49: Test dictionary string representation
+#[test]
+fn test_dictionary_to_string() {
+    let code = "var user = {\"name\": \"Jan\", \"age\": 30}\nvar s = \"\"\nloop key in [\"name\", \"age\"] {\n s += \"{key}: {user[key]} \" }";
+    // Note: The above loop uses array iteration and string interpolation!
+    
+    let mut lex = Lexer::new(code);
+    let tokens = lex.tokenize();
+    
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse_program().unwrap();
+    
+    let mut env = Environment::new();
+    env.run(&ast).unwrap();
+    
+    assert_eq!(env.get("s").unwrap().value, crate::interpreter::Value::Str("name: Jan age: 30 ".to_string()));
+}

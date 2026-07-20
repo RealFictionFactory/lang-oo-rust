@@ -14,6 +14,7 @@ pub enum Value {
     Str(String),
     Bool(bool),
     Array(Vec<Value>),
+    Dict(HashMap<String, Value>),
     Function(Vec<String>, Vec<Stmt>),
     Builtin(BuiltinFn),
     Null,
@@ -29,6 +30,7 @@ impl PartialEq for Value {
             (Value::Str(a), Value::Str(b)) => a == b,
             (Value::Bool(a), Value::Bool(b)) => a == b,
             (Value::Array(a), Value::Array(b)) => a == b,
+            (Value::Dict(a), Value::Dict(b)) => a == b,
             (Value::Null, Value::Null) => true,
             _ => false, 
         }
@@ -56,6 +58,12 @@ impl Value {
             Value::Array(arr) => {
                 let formatted: Vec<String> = arr.iter().map(|v| v.to_string()).collect();
                 format!("[{}]", formatted.join(", "))
+            }
+            Value::Dict(map) => {
+                let formatted: Vec<String> = map.iter()
+                    .map(|(k, v)| format!("\"{}\": {}", k, v.to_string()))
+                    .collect();
+                format!("{{{}}}", formatted.join(", "))
             }
             Value::Function(_, _) => "<func>".to_string(),
             Value::Builtin(_) => "<builtin func>".to_string(),
@@ -216,24 +224,27 @@ impl Environment {
                 }
             }
 
-            Stmt::IndexAssign(arr_expr, idx_expr, val_expr) => {
+            Stmt::IndexAssign(container_expr, idx_expr, val_expr) => {
                 let val = self.eval_expr(val_expr)?;
                 let idx_val = self.eval_expr(idx_expr)?;
-                if let Expr::Variable(name) = &**arr_expr {
-                    if let Value::Number(idx) = idx_val {
-                        if let Some(info) = self.get_mut(name) {
-                            if let Value::Array(arr) = &mut info.value {
+                if let Expr::Variable(name) = &**container_expr {
+                    if let Some(info) = self.get_mut(name) {
+                        match (&mut info.value, idx_val) {
+                            (Value::Array(arr), Value::Number(idx)) => {
                                 if idx < 0 || idx as usize >= arr.len() {
                                     return Err(InterpErr::Err(format!("Array index out of bounds: {}", idx)));
                                 }
                                 arr[idx as usize] = val;
                                 return Ok(());
                             }
-                            return Err(InterpErr::Err(format!("'{}' is not an array", name).to_string()));
+                            (Value::Dict(map), Value::Str(key)) => {
+                                map.insert(key, val);
+                                return Ok(());
+                            }
+                            _ => return Err(InterpErr::Err(format!("'{}' is not an array or dict", name).to_string()))
                         }
-                        return Err(InterpErr::Err(format!("Variable '{}' not defined", name).to_string()));
                     }
-                    return Err(InterpErr::Err("Array index must be a number".to_string()));
+                    return Err(InterpErr::Err(format!("Variable '{}' not defined", name).to_string()));
                 }
                 return Err(InterpErr::Err("Invalid assignment target".to_string()))
             }
@@ -464,16 +475,37 @@ impl Environment {
                 Ok(Value::Array(vals))
             }
 
-            Expr::IndexGet(arr_expr, idx_expr) => {
-                let arr_val = self.eval_expr(arr_expr)?;
-                let idx_val = self.eval_expr(idx_expr)?;
-                if let (Value::Array(arr), Value::Number(idx)) = (arr_val, idx_val) {
-                    if idx < 0 || idx as usize >= arr.len() {
-                        return Err(InterpErr::Err(format!("Array index out of bounds: {}", idx)));
+            Expr::Dict(pairs) => {
+                let mut map = HashMap::new();
+                for (k_expr, v_expr) in pairs {
+                    let k_val = self.eval_expr(k_expr)?;
+                    let v_val = self.eval_expr(v_expr)?;
+                    
+                    if let Value::Str(key) = k_val {
+                        map.insert(key, v_val);
+                    } else {
+                        return Err(InterpErr::Err("Dictionary keys must evaluate to String".to_string()));
                     }
-                    Ok(arr[idx as usize].clone())
-                } else {
-                    Err(InterpErr::Err("Can only index arrays with numbers".to_string()))
+                }
+                Ok(Value::Dict(map))
+            }
+
+            Expr::IndexGet(container_expr, idx_expr) => {
+                let container_val = self.eval_expr(container_expr)?;
+                let idx_val = self.eval_expr(idx_expr)?;
+                
+                match (container_val, idx_val) {
+                    (Value::Array(arr), Value::Number(idx)) => {
+                        if idx < 0 || idx as usize >= arr.len() {
+                            return Err(InterpErr::Err(format!("Array index out of bounds: {}", idx)));
+                        }
+                        Ok(arr[idx as usize].clone())
+                    }
+                    (Value::Dict(map), Value::Str(key)) => { // NOWOŚĆ
+                        map.get(&key).cloned()
+                            .ok_or_else(|| InterpErr::Err(format!("Key '{}' not found in dictionary", key)))
+                    }
+                    _ => Err(InterpErr::Err("Can only index arrays with numbers or dicts with strings".to_string()))
                 }
             }
 
@@ -617,6 +649,7 @@ impl Environment {
             Value::Array(arr) => !arr.is_empty(),
             Value::Null => false,
             Value::Function(_, _) | Value::Builtin(_) => true,
+            Value::Dict(hash_map) => !hash_map.is_empty(),
         }
     }
 
