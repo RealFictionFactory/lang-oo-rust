@@ -41,11 +41,14 @@ impl Value {
         match self {
             Value::Number(n) => n.to_string(),
             Value::Decimal(n) => {
-                // Print decimal as integer if it has no fractional part (e.g., 5.0 -> "5")
-                if n.fract() == 0.0 {
-                    format!("{}", *n as i64)
+                // Use Rust's default formatting, but ensure we always show a decimal point
+                // e.g., 1.0 -> "1.0", 3.14 -> "3.14"
+                let s = format!("{}", n);
+
+                if s.contains('.') {
+                    s
                 } else {
-                    format!("{}", n)
+                    format!("{}.0", s)
                 }
             }
             Value::Str(s) => s.clone(),

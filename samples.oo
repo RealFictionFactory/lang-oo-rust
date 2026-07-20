@@ -1,0 +1,90 @@
+// ==========================================
+// Ó Language - Functional/Integration Tests
+// ==========================================
+
+// 1. Test standard input (returns String)
+var name = input("Enter your name: ")
+print("Hello, ", name, "!")
+
+// 2. Test input and conversion to Number in one line
+var age = input("Enter your age: ").asNumber()
+print("Next year you will be ", age + 1, " years old.")
+
+// 3. Test input and conversion to Decimal
+let pi = input("Enter the value of PI (e.g., 3.14): ").asDecimal()
+let r = input("Enter the radius of a circle: ").asNumber()
+print("The area of the circle is: ", pi * r * r)
+
+// 4. Test conversion to Boolean
+let is_admin_str = input("Are you an admin? (true/false): ")
+let is_admin = is_admin_str.asBoolean()
+if is_admin {
+    print("Welcome, Administrator!")
+} else {
+    print("No administrator privileges.")
+}
+
+// 5. Test String methods and chaining
+var shout = input("Say something quietly: ").upper()
+print("SHOUTING: ", shout)
+print("Your shout length is: ", shout.length())
+
+// 6. Test Array methods and mutation
+var nums = [10, 20, 30]
+print("Initial array length: ", nums.length())
+nums.push(40)
+print("New array length after adding 40: ", nums.length())
+print("Entire array: ", nums)
+
+// 7. Test Variables, Constants, and Type Annotations
+var x is Number = 10
+let y is String = "immutable"
+var z = 3.14
+print("Variables: ", x, y, z)
+
+// 8. Test Control Flow: Loops and Conditionals
+var sum = 0
+loop i from 1..6 {
+    if i == 3 {
+        continue // Skip 3
+    }
+    if i == 5 {
+        break   // Stop at 5
+    }
+    sum += i
+}
+print("Loop sum (1+2+4) is: ", sum) // Expect 7
+
+// 9. Test Logical and Unary Operators
+var a = true and false
+var b = true or false
+var c = not false
+var d = -10 + 5
+print("Logical/Unary: ", a, b, c, d)
+
+// 10. Test 'if' as an Expression
+var status = if age >= 18 { "adult" } else { "minor" }
+print("Status: ", status)
+
+// 11. Test Error Handling (execute / onError)
+var result = execute {
+    var bad_math = 100 / 0
+    bad_math
+} onError(err) {
+    print("Caught an error: ", err)
+    -1 // Return fallback value
+}
+print("Error handling result: ", result)
+
+// 12. Test Functions and Recursion
+func factorial(n) {
+    if n <= 1 {
+        return 1
+    }
+    return n * factorial(n - 1)
+}
+print("Factorial of 5 is: ", factorial(5))
+
+// 13. Test String Interpolation
+var lang = "Ó"
+print("Language {lang} is at version {1 + 0.0}!")
