@@ -89,14 +89,14 @@ loop {
 ```
 
 ## 7. Functions
-Defined using the `func` keyword. They can return a value using `return`. They support recursion and have their own local scope (variables inside a function do not overwrite global variables).
+Defined using the `fun` keyword. They can return a value using `return`. They support recursion and have their own local scope (variables inside a function do not overwrite global variables).
 
 ```text
-func add(a, b) {
+fun add(a, b) {
   return a + b
 }
 
-func factorial(n) {
+fun factorial(n) {
   if n <= 1 {
     return 1
   }

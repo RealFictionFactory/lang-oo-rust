@@ -103,7 +103,7 @@ var result = execute {
 print("Error handling result: ", result)
 
 // 15. Test Functions and Recursion
-func factorial(n) {
+fun factorial(n) {
     if n <= 1 {
         return 1
     }

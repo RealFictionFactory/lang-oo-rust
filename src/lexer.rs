@@ -186,7 +186,7 @@ impl Lexer {
                     "and" => Token::And,
                     "or" => Token::Or,
                     "not" => Token::Not,
-                    "func" => Token::Func,
+                    "fun" => Token::Func,
                     "return" => Token::Return,
                     "break" => Token::Break,
                     "continue" => Token::Continue,
@@ -205,6 +205,22 @@ impl Lexer {
                 while let Some(next_ch) = self.next_char() {
                     if next_ch == '"' {
                         break;
+                    }
+                    // Handle escape sequences
+                    if next_ch == '\\' {
+                        if let Some(escaped_ch) = self.next_char() {
+                            match escaped_ch {
+                                'n' => str_val.push('\n'),
+                                't' => str_val.push('\t'),
+                                '\\' => str_val.push('\\'),
+                                '"' => str_val.push('"'),
+                                _ => {
+                                    str_val.push('\\');
+                                    str_val.push(escaped_ch);
+                                }
+                            }
+                            continue;
+                        }
                     }
                     str_val.push(next_ch);
                 }

@@ -89,14 +89,14 @@ loop {
 ```
 
 ## 7. Funkcje
-Definiowane słowem kluczowym `func`. Mogą zwracać wartość używając `return`. Obsługują rekurencję i mają własny zakres zmiennych (zmienne wewnątrz funkcji nie nadpisują zmiennych globalnych).
+Definiowane słowem kluczowym `fun`. Mogą zwracać wartość używając `return`. Obsługują rekurencję i mają własny zakres zmiennych (zmienne wewnątrz funkcji nie nadpisują zmiennych globalnych).
 
 ```text
-func add(a, b) {
+fun add(a, b) {
   return a + b
 }
 
-func factorial(n) {
+fun factorial(n) {
   if n <= 1 {
     return 1
   }

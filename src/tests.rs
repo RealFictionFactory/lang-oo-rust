@@ -392,7 +392,7 @@ fn test_interpreter_array_mutation() {
 // Test 22: Test user-defined functions
 #[test]
 fn test_interpreter_functions() {
-    let code = "func add(a, b) { return a + b }\nvar x = add(5, 10)";
+    let code = "fun add(a, b) { return a + b }\nvar x = add(5, 10)";
     
     let mut lex = Lexer::new(code);
     let tokens = lex.tokenize();
@@ -409,7 +409,7 @@ fn test_interpreter_functions() {
 // Test 23: Test recursion (Fibonacci or Factorial)
 #[test]
 fn test_interpreter_recursion() {
-    let code = "func fib(n) { if n < 2 { return n } else { return fib(n - 1) + fib(n - 2) } }\nvar x = fib(10)";
+    let code = "fun fib(n) { if n < 2 { return n } else { return fib(n - 1) + fib(n - 2) } }\nvar x = fib(10)";
     
     let mut lex = Lexer::new(code);
     let tokens = lex.tokenize();
@@ -654,7 +654,7 @@ fn test_if_as_expression() {
 // Test 36: Test 'return if {} else {}' inside a function
 #[test]
 fn test_return_if_expression() {
-    let code = "func check(n) { return if n > 0 { \"positive\" } else { \"zero or negative\" } }\nvar x = check(5)\nvar y = check(-2)";
+    let code = "fun check(n) { return if n > 0 { \"positive\" } else { \"zero or negative\" } }\nvar x = check(5)\nvar y = check(-2)";
     
     let mut lex = Lexer::new(code);
     let tokens = lex.tokenize();
