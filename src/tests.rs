@@ -917,3 +917,96 @@ fn test_dictionary_to_string() {
     
     assert_eq!(env.get("s").unwrap().value, crate::interpreter::Value::Str("name: Jan age: 30 ".to_string()));
 }
+
+// Test 50: Test correct type annotation on declaration
+#[test]
+fn test_type_check_correct_decl() {
+    let code = "var x is Number = 10\nvar y is String = \"hello\"\nvar z is Bool = true";
+    
+    let mut lex = Lexer::new(code);
+    let tokens = lex.tokenize();
+    
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse_program().unwrap();
+    
+    let mut env = Environment::new();
+    let result = env.run(&ast);
+    
+    assert!(result.is_ok(), "Correct type annotations should not fail");
+    assert_eq!(env.get("x").unwrap().value, crate::interpreter::Value::Number(10));
+}
+
+// Test 51: Test type mismatch on declaration
+#[test]
+fn test_type_check_mismatch_decl() {
+    let code = "var x is Number = \"string\"";
+    
+    let mut lex = Lexer::new(code);
+    let tokens = lex.tokenize();
+    
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse_program().unwrap();
+    
+    let mut env = Environment::new();
+    let result = env.run(&ast);
+    
+    assert!(result.is_err(), "Should fail due to type mismatch");
+    assert_eq!(result.unwrap_err(), "Type mismatch: expected 'Number', got String");
+}
+
+// Test 52: Test type mismatch on assignment
+#[test]
+fn test_type_check_mismatch_assign() {
+    let code = "var x is Number = 10\nx = true";
+    
+    let mut lex = Lexer::new(code);
+    let tokens = lex.tokenize();
+    
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse_program().unwrap();
+    
+    let mut env = Environment::new();
+    let result = env.run(&ast);
+    
+    assert!(result.is_err(), "Should fail when assigning wrong type to typed variable");
+    assert_eq!(result.unwrap_err(), "Type mismatch: cannot assign Bool to variable of type Number");
+}
+
+// Test 53: Test default value for Array type
+#[test]
+fn test_type_check_default_array() {
+    let code = "var arr is Array\narr.push(99)\nvar l = arr.length()";
+    
+    let mut lex = Lexer::new(code);
+    let tokens = lex.tokenize();
+    
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse_program().unwrap();
+    
+    let mut env = Environment::new();
+    env.run(&ast).unwrap();
+    
+    assert_eq!(env.get("l").unwrap().value, crate::interpreter::Value::Number(1));
+}
+
+// Test 54: Test default value for Dict type
+#[test]
+fn test_type_check_default_dict() {
+    let code = "var d is Dict\nd[\"key\"] = \"value\"";
+    
+    let mut lex = Lexer::new(code);
+    let tokens = lex.tokenize();
+    
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse_program().unwrap();
+    
+    let mut env = Environment::new();
+    env.run(&ast).unwrap();
+    
+    let d_val = &env.get("d").unwrap().value;
+    if let crate::interpreter::Value::Dict(map) = d_val {
+        assert_eq!(map.get("key").unwrap(), &crate::interpreter::Value::Str("value".to_string()));
+    } else {
+        panic!("Variable d should be a Dict");
+    }
+}

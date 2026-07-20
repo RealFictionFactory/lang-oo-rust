@@ -9,12 +9,14 @@ pub fn register_stdlib(env: &mut Environment) {
     // Global functions
     env.insert("print".to_string(), VarInfo { 
         value: Value::Builtin(builtin_print), 
-        is_const: true 
+        is_const: true,
+        type_name: None
     });
 
     env.insert("input".to_string(), VarInfo { 
         value: Value::Builtin(builtin_input), 
-        is_const: true 
+        is_const: true,
+        type_name: None
     });
 
     // Extension methods

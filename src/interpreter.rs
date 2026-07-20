@@ -77,6 +77,7 @@ impl Value {
 pub struct VarInfo {
     pub value: Value,
     pub is_const: bool,
+    pub type_name: Option<String>,
 }
 
 /// Type alias for extension functions: takes the receiver object and a list of arguments.
@@ -175,7 +176,12 @@ impl Environment {
                     Some(e) => self.eval_expr(e)?,
                     None => self.get_default_value(type_name)?,
                 };
-                self.insert(name.clone(), VarInfo { value, is_const: false });
+                if let Some(t) = type_name {
+                    if !self.value_matches_type(t, &value) {
+                        return Err(InterpErr::Err(format!("Type mismatch: expected '{}', got {}", t, self.value_type_name(&value))));
+                    }
+                }
+                self.insert(name.clone(), VarInfo { value, is_const: false, type_name: type_name.clone() });
             }
 
             Stmt::Let(name, type_name, expr) => {
@@ -183,18 +189,37 @@ impl Environment {
                     Some(e) => self.eval_expr(e)?,
                     None => self.get_default_value(type_name)?,
                 };
-                self.insert(name.clone(), VarInfo { value, is_const: true });
+                if let Some(t) = type_name {
+                    if !self.value_matches_type(t, &value) {
+                        return Err(InterpErr::Err(format!("Type mismatch: expected '{}', got {}", t, self.value_type_name(&value))));
+                    }
+                }
+                self.insert(name.clone(), VarInfo { value, is_const: true, type_name: type_name.clone() });
             }
 
             Stmt::Assign(name, expr) => {
                 let value = self.eval_expr(expr)?;
-                if let Some(info) = self.get_mut(name) {
+                
+                // 1. Get variable info (immutable borrow) to check const flag and get type
+                let var_type = if let Some(info) = self.get(name) {
                     if info.is_const {
                         return Err(InterpErr::Err(format!("Cannot change value of constant '{}'", name)));
                     }
-                    info.value = value;
+                    info.type_name.clone()
                 } else {
                     return Err(InterpErr::Err(format!("Variable '{}' is not declared. Use 'var' or 'let'.", name)));
+                };
+                
+                // 2. Check type matching (we can safely call methods on self here)
+                if let Some(t) = &var_type {
+                    if !self.value_matches_type(t, &value) {
+                        return Err(InterpErr::Err(format!("Type mismatch: cannot assign {} to variable of type {}", self.value_type_name(&value), t)));
+                    }
+                }
+                
+                // 3. Update the value (mutable borrow)
+                if let Some(info) = self.get_mut(name) {
+                    info.value = value;
                 }
             }
 
@@ -208,7 +233,7 @@ impl Environment {
                 let end_val = self.eval_expr(end_expr)?;
                 if let (Value::Number(start), Value::Number(end)) = (start_val, end_val) {
                     'outer: for i in start..end {
-                        self.insert(var_name.clone(), VarInfo { value: Value::Number(i), is_const: false });
+                        self.insert(var_name.clone(), VarInfo { value: Value::Number(i), is_const: false, type_name: None });
                         for s in body {
                             match self.eval_stmt(s) {
                                 Ok(_) => {}
@@ -251,7 +276,7 @@ impl Environment {
 
             Stmt::FuncDecl(name, params, body) => {
                 let func_val = Value::Function(params.clone(), body.clone());
-                self.insert(name.clone(), VarInfo { value: func_val, is_const: true });
+                self.insert(name.clone(), VarInfo { value: func_val, is_const: true, type_name: None });
             }
 
             Stmt::Return(expr) => {
@@ -301,7 +326,7 @@ impl Environment {
                 let iterable_val = self.eval_expr(iterable_expr)?;
                 if let Value::Array(arr) = iterable_val {
                     'outer: for element in arr {
-                        self.insert(var_name.clone(), VarInfo { value: element, is_const: false });
+                        self.insert(var_name.clone(), VarInfo { value: element, is_const: false, type_name: None });
                         for s in body {
                             match self.eval_stmt(s) {
                                 Ok(_) => {}
@@ -527,7 +552,7 @@ impl Environment {
                         let mut local_env = Environment::with_parent(self.clone());
                         
                         for (i, param_name) in params.iter().enumerate() {
-                            local_env.insert(param_name.clone(), VarInfo { value: arg_vals[i].clone(), is_const: false });
+                            local_env.insert(param_name.clone(), VarInfo { value: arg_vals[i].clone(), is_const: false, type_name: None });
                         }
 
                         for stmt in &body {
@@ -600,7 +625,8 @@ impl Environment {
                         if let Some(var_name) = err_var {
                             self.insert(var_name.clone(), VarInfo { 
                                 value: Value::Str(msg), 
-                                is_const: true 
+                                is_const: true,
+                                type_name: Some("String".to_string())
                             });
                         }
                         return self.eval_block_as_expr(catch_body);
@@ -633,9 +659,40 @@ impl Environment {
                 "Decimal" => Ok(Value::Decimal(0.0)),
                 "String" => Ok(Value::Str("".to_string())),
                 "Bool" => Ok(Value::Bool(false)),
+                "Array" => Ok(Value::Array(Vec::new())),
+                "Dict" => Ok(Value::Dict(HashMap::new())),
+                "Null" => Ok(Value::Null),
                 _ => Err(InterpErr::Err(format!("Unknown type: {}", t))),
             },
             None => Err(InterpErr::Err("Cannot infer default value without type".to_string())),
+        }
+    }
+
+    /// Checks if a given value matches the expected type name.
+    fn value_matches_type(&self, type_name: &str, value: &Value) -> bool {
+        match type_name {
+            "Number" => matches!(value, Value::Number(_)),
+            "Decimal" => matches!(value, Value::Decimal(_)),
+            "String" => matches!(value, Value::Str(_)),
+            "Bool" => matches!(value, Value::Bool(_)),
+            "Array" => matches!(value, Value::Array(_)),
+            "Dict" => matches!(value, Value::Dict(_)),
+            "Null" => matches!(value, Value::Null),
+            _ => true, // Unknown types are allowed (for future extensions)
+        }
+    }
+
+    /// Returns the type name of a Value as a string (for error messages).
+    fn value_type_name(&self, value: &Value) -> &'static str {
+        match value {
+            Value::Number(_) => "Number",
+            Value::Decimal(_) => "Decimal",
+            Value::Str(_) => "String",
+            Value::Bool(_) => "Bool",
+            Value::Array(_) => "Array",
+            Value::Dict(_) => "Dict",
+            Value::Function(_, _) | Value::Builtin(_) => "Function",
+            Value::Null => "Null",
         }
     }
 

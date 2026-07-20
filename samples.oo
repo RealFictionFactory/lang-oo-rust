@@ -114,3 +114,28 @@ print("Factorial of 5 is: ", factorial(5))
 // 16. Test String Interpolation
 var lang = "Ó"
 print("Language {lang} is at version {1 + 0.0}!")
+
+// 17. Test Runtime Type Checking
+print("\n--- Runtime Type Checking ---")
+var typed_arr is Array
+typed_arr.push("Type checking works!")
+print(typed_arr[0])
+
+var typed_num is Number = 50
+print("Typed number: ", typed_num)
+
+// Catching a type mismatch on declaration
+var decl_err = execute {
+    var bad_decl is String = 99
+} onError(e) {
+    "Caught declaration mismatch: {e}"
+}
+print(decl_err)
+
+// Catching a type mismatch on assignment
+var assign_err = execute {
+    typed_num = "not a number"
+} onError(e) {
+    "Caught assignment mismatch: {e}"
+}
+print(assign_err)
