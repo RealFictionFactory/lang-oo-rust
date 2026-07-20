@@ -11,13 +11,13 @@ This is a hobbyist project created primarily for educational purposes. The main 
 ## Features
 
 * **Clean Syntax:** No semicolons required. Newlines determine the end of statements.
-* **Optional Typing:** Variables can be strictly typed with default values (`var x is Number`) or dynamically inferred (`var x = 10`).
+* **Optional & Enforced Typing:** Variables can be strictly typed with default values (`var x is Number`) or dynamically inferred (`var x = 10`). If a type is specified, it is strictly enforced at runtime (e.g., assigning a String to a Number variable throws an error).
 * **Type Promotion:** Automatic promotion from `Number` (i64) to `Decimal` (f64) in mathematical operations.
 * **Advanced Control Flow:** 
   * `if` can be used as a statement **and** as an expression (e.g., `var x = if cond { 1 } else { 2 }`).
   * Versatile `loop` keyword: range loops (`loop i from 1..10`), array iteration (`loop x in arr`), and infinite loops (`loop { ... }`) with conditional `until (cond)` breaks.
   * Logical operators (`and`, `or`, `not`) with short-circuit evaluation.
-* **Error Handling:** `execute { ... } onError(err) { ... }` blocks to catch and handle runtime errors gracefully.
+* **Error Handling:** `execute { ... } onError(err) { ... }` blocks to catch and handle runtime errors (including type mismatches) gracefully.
 * **Data Structures:** Arrays, Dictionaries (`{"key": value}`), and String interpolation (`"Hello {name}!"`).
 * **Lightweight Standard Library:** Global functions like `print` and `input`, alongside a clean extension method system (e.g., `"text".upper()`, `input("Age: ").asNumber()`).
 
@@ -27,7 +27,7 @@ Here is a taste of what writing in "`Ó`" looks like:
 
 ```text
 // Function with recursion
-func factorial(n) {
+fun factorial(n) {
   if n <= 1 {
     return 1
   }
@@ -45,8 +45,10 @@ var user = {"name": name, "age": num}
 var status = if user["age"] >= 18 { "adult" } else { "minor" }
 print("Status: {status}")
 
-// Error handling
+// Error handling and Type Checking
 var result = execute {
+  var typed_num is Number = 50
+  typed_num = "this will fail" // Throws a type mismatch error
   print("Factorial of {num} is {factorial(num)}")
 } onError(err) {
   print("Something went wrong: {err}")
@@ -59,7 +61,7 @@ The interpreter is divided into clean, separate modules:
 * `lexer.rs` - Tokenizes the raw source code.
 * `parser.rs` - Converts tokens into an Abstract Syntax Tree (AST) using Recursive Descent Parsing.
 * `ast.rs` - Definitions for AST nodes (Expressions and Statements).
-* `interpreter.rs` - Walks the AST and executes the program, managing scopes and environments.
+* `interpreter.rs` - Walks the AST and executes the program, managing scopes, environments, and runtime type checking.
 * `stdlib.rs` - The standard library (global functions and extension methods).
 * `modules/` - Placeholder for future loadable extension modules.
 
@@ -80,4 +82,3 @@ Make sure you have the [Rust toolchain](https://www.rust-lang.org/tools/install)
 
 ---
 *Note: This project is an ongoing learning experiment and not intended for production use.*
-```

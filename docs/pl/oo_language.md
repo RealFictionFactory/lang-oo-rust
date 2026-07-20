@@ -18,13 +18,22 @@ Język posiada wbudowane typy, które można podawać opcjonalnie przy deklaracj
 *   `Null` - brak wartości (zwracany np. przez funkcje bez instrukcji `return`).
 
 ## 3. Zmienne i Stałe
-Deklaracja używa słów kluczowych `var` (zmienne) i `let` (stałe). Można podać typ używając `is Type`, co nada domyślną wartość (`0` dla liczb, `false` dla Bool, `""` dla String).
+Deklaracja używa słów kluczowych `var` (zmienne) i `let` (stałe). Można podać typ używając `is Type`, co nada domyślną wartość (`0` dla liczb, `false` dla Bool, `""` dla String, `[]` dla Array, `{}` dla Dict).
 
 ```text
 var x = 10
 let pi = 3.14
 var name is String  // domyślnie ""
 var counter is Number // domyślnie 0
+var arr is Array // domyślnie []
+```
+
+### Sprawdzanie typów w czasie wykonania (Runtime Type Checking)
+Jeśli typ zostanie jawnie określony, język egzekwuje go w czasie wykonania. Próba przypisania wartości niewłaściwego typu do otypowanej zmiennej skończy się błędem w czasie wykonania.
+
+```text
+var age is Number = 20
+age = "dwadzieścia" // Błąd wykonania: Type mismatch: cannot assign String to variable of type Number
 ```
 
 ## 4. Operatory
@@ -135,7 +144,7 @@ print("Witaj {name}! Wynik to {x + 5}") // Witaj Świecie! Wynik to 10
 ```
 
 ## 11. Obsługa Błędów (`execute` / `onError`)
-Błędy wykonania (np. dzielenie przez zero lub odwołanie do nieistniejącej zmiennej) mogą być przechwytywane za pomocą wyrażenia `execute` / `onError`. Próbuje ono wykonać pierwszy blok. Jeśli wystąpi błąd, jest on przechwytywany, komunikat błędu przypisywany do zmiennej, a następnie wykonywany jest drugi blok.
+Błędy wykonania (np. dzielenie przez zero, odwołanie do nieistniejącej zmiennej lub niezgodność typów) mogą być przechwytywane za pomocą wyrażenia `execute` / `onError`. Próbuje ono wykonać pierwszy blok. Jeśli wystąpi błąd, jest on przechwytywany, komunikat błędu przypisywany do zmiennej, a następnie wykonywany jest drugi blok.
 
 ```text
 var result = execute {

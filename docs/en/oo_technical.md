@@ -17,7 +17,7 @@ The project is divided into logical modules in the `src/` directory:
 ### `lexer.rs`
 - Responsible for lexical analysis.
 - Converts a character string (`String`) into a vector of tokens (`Vec<Token>`).
-- Recognizes keywords (including `and`, `or`, `not`, `execute`, `onError`, `until`, `in`), literals (Number, Decimal, String, Bool), identifiers, and operators.
+- Recognizes keywords (including `fun`, `and`, `or`, `not`, `execute`, `onError`, `until`, `in`), literals (Number, Decimal, String, Bool), identifiers, and operators.
 - Features "peek" logic for two-character operators (e.g., `==`, `+=`, `..`, `<=`).
 - Automatically recognizes floats by checking if a dot following a number is not the start of a range `..`.
 - Ignores `//` comments until the end of the line, generating `NewLine` tokens that signify the end of a statement.
@@ -40,6 +40,7 @@ The project is divided into logical modules in the `src/` directory:
 ### `interpreter.rs`
 - Implements the execution logic on the AST.
 - The main structure is `Environment`, implementing the Scope Chain pattern with a `parent: Option<Box<Environment>>` field. This allows functions to read global variables without permanently overwriting them with their local ones.
+- The `VarInfo` struct stores the `Value`, a `is_const` flag, and an optional `type_name`. This enables **Runtime Type Checking**: if `type_name` is specified, the interpreter validates values during declaration (`Stmt::VarDecl`, `Stmt::Let`) and assignment (`Stmt::Assign`) using helper methods like `value_matches_type`.
 - Uses a custom error system `InterpErr` with `Return`, `Break`, `Continue`, and `Err` variants. Thanks to error propagation (`?`), control flow statements "bubble up" through nested blocks. The `Until` statement leverages this by returning `InterpErr::Break` if its condition is true.
 - Introduces `eval_block_as_expr`, a helper that evaluates a block of statements and returns the value of the last expression, enabling `if` and `execute` to act as expressions.
 - Implements short-circuit evaluation for logical operators (`and`, `or`).
@@ -61,7 +62,7 @@ The project is divided into logical modules in the `src/` directory:
 
 ### `tests.rs`
 - Unit testing module. Uses the `#[cfg(test)]` attribute.
-- Conducts integration tests of the entire pipeline: Lexer -> Parser -> Interpreter, verifying results, AST structures, and correct error throwing (including logical operators, loops, dictionaries, and error handling). (Currently 49 passing tests).
+- Conducts integration tests of the entire pipeline: Lexer -> Parser -> Interpreter, verifying results, AST structures, and correct error throwing (including logical operators, loops, dictionaries, error handling, and type checking). (Currently 54 passing tests).
 
 ## 3. Dependencies
 The project relies entirely on the Rust standard library (`std`). It does not use any external crates.

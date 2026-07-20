@@ -18,13 +18,22 @@ The language has built-in types that can be optionally specified during declarat
 *   `Null` - Absence of a value (returned e.g., by functions without a `return` statement).
 
 ## 3. Variables and Constants
-Declarations use the `var` (mutable) and `let` (immutable) keywords. You can specify the type using `is Type`, which assigns a default value (`0` for numbers, `false` for Bool, `""` for String).
+Declarations use the `var` (mutable) and `let` (immutable) keywords. You can specify the type using `is Type`, which assigns a default value (`0` for numbers, `false` for Bool, `""` for String, `[]` for Array, `{}` for Dict).
 
 ```text
 var x = 10
 let pi = 3.14
 var name is String  // defaults to ""
 var counter is Number // defaults to 0
+var arr is Array // defaults to []
+```
+
+### Runtime Type Checking
+If a type is explicitly specified, the language enforces it at runtime. Attempting to assign a value of the wrong type to a typed variable will result in a runtime error.
+
+```text
+var age is Number = 20
+age = "twenty" // Runtime error: Type mismatch: cannot assign String to variable of type Number
 ```
 
 ## 4. Operators
@@ -135,7 +144,7 @@ print("Hello {name}! The result is {x + 5}") // Hello World! The result is 10
 ```
 
 ## 11. Error Handling (`execute` / `onError`)
-Runtime errors (like division by zero or missing variables) can be caught using the `execute` / `onError` expression. It attempts to run the first block. If an error occurs, it catches it, binds the error message to a variable, and runs the second block.
+Runtime errors (like division by zero, missing variables, or type mismatches) can be caught using the `execute` / `onError` expression. It attempts to run the first block. If an error occurs, it catches it, binds the error message to a variable, and runs the second block.
 
 ```text
 var result = execute {

@@ -17,7 +17,7 @@ Projekt jest podzielony na logiczne moduły w folderze `src/`:
 ### `lexer.rs`
 - Odpowiada za analizę leksykalną.
 - Zmienia ciąg znaków (`String`) na wektor tokenów (`Vec<Token>`).
-- Rozpoznaje słowa kluczowe (w tym `and`, `or`, `not`, `execute`, `onError`, `until`, `in`), literały (Number, Decimal, String, Bool), identyfikatory i operatory.
+- Rozpoznaje słowa kluczowe (w tym `fun`, `and`, `or`, `not`, `execute`, `onError`, `until`, `in`), literały (Number, Decimal, String, Bool), identyfikatory i operatory.
 - Posiada logikę "podglądania" (peek) dla operatorów dwuznakowych (np. `==`, `+=`, `..`, `<=`).
 - Automatycznie rozpoznaje ułamki, sprawdzając czy kropka po liczbie nie jest początkiem zakresu `..`.
 - Ignoruje komentarze `//` aż do końca linii, generując tokeny `NewLine` znaczące koniec instrukcji.
@@ -40,6 +40,7 @@ Projekt jest podzielony na logiczne moduły w folderze `src/`:
 ### `interpreter.rs`
 - Implementuje logikę wykonania na drzewie AST.
 - Główną strukturą jest `Environment`, implementująca wzorzec łańcucha zasięgów (Scope Chain) z polem `parent: Option<Box<Environment>>`. To pozwala funkcjom czytać zmienne globalne, nie nadpisując ich trwale swoimi lokalnymi.
+- Struktura `VarInfo` przechowuje `Value`, flagę `is_const` oraz opcjonalne `type_name`. To umożliwia **sprawdzanie typów w czasie wykonania (Runtime Type Checking)**: jeśli określono `type_name`, interpreter waliduje wartości podczas deklaracji (`Stmt::VarDecl`, `Stmt::Let`) i przypisania (`Stmt::Assign`) używając metod pomocniczych takich jak `value_matches_type`.
 - Wykorzystuje własny system błędów `InterpErr` z wariantami `Return`, `Break`, `Continue` i `Err`. Dzięki wykorzystaniu propagacji błędów (`?`), instrukcje sterujące "przebijają się" przez zagnieżdżone bloki. Instrukcja `Until` wykorzystuje to, zwracając `InterpErr::Break`, jeśli jej warunek jest prawdziwy.
 - Wprowadza funkcję `eval_block_as_expr`, która ewaluuje blok instrukcji i zwraca wartość ostatniego wyrażenia, co pozwala `if` i `execute` działać jako wyrażenia.
 - Implementuje short-circuit evaluation dla operatorów logicznych (`and`, `or`).
@@ -61,7 +62,7 @@ Projekt jest podzielony na logiczne moduły w folderze `src/`:
 
 ### `tests.rs`
 - Moduł testów jednostkowych. Używa atrybutu `#[cfg(test)]`.
-- Przeprowadza testy integracyjne całego potoku: Lexer -> Parser -> Interpreter, weryfikując wyniki, struktury AST i poprawne wyrzucanie błędów (w tym operatorów logicznych, pętli, słowników i obsługi błędów). (Obecnie 49 przechodzących testów).
+- Przeprowadza testy integracyjne całego potoku: Lexer -> Parser -> Interpreter, weryfikując wyniki, struktury AST i poprawne wyrzucanie błędów (w tym operatorów logicznych, pętli, słowników, obsługi błędów i sprawdzania typów). (Obecnie 54 przechodzące testy).
 
 ## 3. Zależności
 Projekt w pełni opiera się na bibliotece standardowej Rusta (`std`). Nie używa żadnych zewnętrznych skrzynek (Crate'ów).
