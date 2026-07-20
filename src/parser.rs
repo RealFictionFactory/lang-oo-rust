@@ -1,6 +1,6 @@
 // src/parser.rs
 
-use crate::ast::{BinOp, Expr, Stmt};
+use crate::ast::{BinOp, Expr, Stmt, UnOp};
 use crate::lexer::{Token, Lexer};
 
 /// The Parser takes a list of tokens from the Lexer and constructs an Abstract Syntax Tree (AST).
@@ -310,8 +310,27 @@ impl Parser {
     // --- EXPRESSION PARSING ---
     // Precedence: parse_expr (+, -, ==, !=, >, <) -> parse_term (*, /, %) -> parse_factor (literals, variables, parentheses)
     
-    /// Parses expressions handling addition, subtraction, and comparisons.
+    /// Parses expressions handling logical operators (and, or).
     fn parse_expr(&mut self) -> Result<Expr, String> {
+        let mut left = self.parse_logic()?;
+
+        while let Some(token) = self.peek() {
+            let op = match token {
+                Token::And => BinOp::And,
+                Token::Or => BinOp::Or,
+                _ => break,
+            };
+
+            self.next(); // consume operator
+            let right = self.parse_logic()?;
+            left = Expr::Binary(Box::new(left), op, Box::new(right));
+        }
+
+        Ok(left)
+    }
+
+    /// Parses logical operations (and, or) by calling the arithmetic parser.
+    fn parse_logic(&mut self) -> Result<Expr, String> {
         let mut left = self.parse_term()?;
 
         while let Some(token) = self.peek() {
@@ -337,7 +356,7 @@ impl Parser {
 
     /// Parses expressions handling multiplication, division, and modulo (higher precedence than + and -).
     fn parse_term(&mut self) -> Result<Expr, String> {
-        let mut left = self.parse_factor()?;
+        let mut left = self.parse_unary()?;
 
         while let Some(token) = self.peek() {
             let op = match token {
@@ -348,11 +367,28 @@ impl Parser {
             };
             self.next(); // consume operator
             
-            let right = self.parse_factor()?;
+            let right = self.parse_unary()?;
             left = Expr::Binary(Box::new(left), op, Box::new(right));
         }
 
         Ok(left)
+    }
+
+    /// Parses unary operators (- and not) before the main factor.
+    fn parse_unary(&mut self) -> Result<Expr, String> {
+        match self.peek() {
+            Some(Token::Minus) => {
+                self.next(); // consume '-'
+                let right = self.parse_unary()?;
+                Ok(Expr::Unary(UnOp::Negate, Box::new(right)))
+            }
+            Some(Token::Not) => {
+                self.next(); // consume 'not'
+                let right = self.parse_unary()?;
+                Ok(Expr::Unary(UnOp::Not, Box::new(right)))
+            }
+            _ => self.parse_factor(),
+        }
     }
 
     /// Parses the lowest level expressions: literals, variables, parentheses, arrays, and string interpolation.

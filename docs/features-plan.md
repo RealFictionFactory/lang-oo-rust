@@ -1,13 +1,5 @@
 ### Mapa drogowa rozwoju języka "Ó":
 
-1. **Refaktoryzacja `if` na wyrażenie (Expression)**
-   * **Cel:** Możliwość użycia `var x = if warunek { 1 } else { 2 }` oraz `return if warunek { "tak" } else { "nie" }`.
-   * **Jak zrobimy:** Przeniesiemy `If` z węzła `Stmt` do `Expr`. W parserze zaczniemy traktować `if` jak wyrażenie w `parse_factor`. W interpreterze użyjemy `eval_block_as_expr` do zwrócenia wartości z bloku.
-
-2. **Operatory logiczne (`and`, `or`, `not`)**
-   * **Cel:** Łączenie warunków: `if x > 5 and x < 10 { ... }`.
-   * **Jak zrobimy:** Dodamy słowa kluczowe do lexera, nowe operatory do AST (`BinOp::And`, `BinOp::Or`) oraz `Expr::Unary` dla `not`. W parserze stworzymy nowy poziom priorytetu (najniższy, wywołujący `parse_expr`). W interpreterze zaimplementujemy *short-circuit evaluation*.
-
 3. **Pętle: `loop in` oraz `while`**
    * **Cel:** Iteracja po tablicach `loop element in moja_tablica { ... }` oraz klasyczna pętla warunkowa `while warunek { ... }`.
    * **Jak zrobimy:** Dodamy słowo kluczowe `in` i `while`. W parserze rozgałęzimy logikę pętli. W AST dodamy `Stmt::LoopIn` i `Stmt::While`. W interpreterze zaimplementujemy iterowanie po `Value::Array` oraz sprawdzanie warunku dopóki jest prawdziwy.

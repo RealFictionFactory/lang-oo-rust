@@ -15,6 +15,15 @@ pub enum BinOp {
     LessThan,   // <
     GreaterEq,  // >=
     LessEq,     // <=
+    And,        // and (logical and)
+    Or,         // or (logical or)
+}
+
+/// Represents unary operators (applied to a single value).
+#[derive(Debug, Clone, PartialEq)]
+pub enum UnOp {
+    Negate, // - (unary minus, e.g., -5)
+    Not,    // not (logical negation, e.g., not true)
 }
 
 /// Represents an Abstract Syntax Tree (AST) node for an Expression.
@@ -38,6 +47,9 @@ pub enum Expr {
     
     /// A binary operation: `left [operator] right` (e.g., `a + b`)
     Binary(Box<Expr>, BinOp, Box<Expr>),
+
+    /// A unary operation: `operator right` (e.g., `-5` or `not true`)
+    Unary(UnOp, Box<Expr>),
     
     /// An array literal: `[1, 2, 3]`
     Array(Vec<Expr>),

@@ -668,3 +668,104 @@ fn test_return_if_expression() {
     assert_eq!(env.get("x").unwrap().value, crate::interpreter::Value::Str("positive".to_string()));
     assert_eq!(env.get("y").unwrap().value, crate::interpreter::Value::Str("zero or negative".to_string()));
 }
+
+// Test 37: Test logical operators (and, or)
+#[test]
+fn test_logical_operators() {
+    let code = "var a = true and false\nvar b = true or false\nvar c = (5 > 3) and (10 > 5)";
+    
+    let mut lex = Lexer::new(code);
+    let tokens = lex.tokenize();
+    
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse_program().unwrap();
+    
+    let mut env = Environment::new();
+    env.run(&ast).unwrap();
+    
+    assert_eq!(env.get("a").unwrap().value, crate::interpreter::Value::Bool(false));
+    assert_eq!(env.get("b").unwrap().value, crate::interpreter::Value::Bool(true));
+    assert_eq!(env.get("c").unwrap().value, crate::interpreter::Value::Bool(true));
+}
+
+// Test 38: Test short-circuit evaluation for 'and'
+#[test]
+fn test_short_circuit_and() {
+    // If it evaluates the right side, it would throw a division by zero error.
+    // Because left is false, it should immediately return false without evaluating the right side.
+    let code = "var x = false and (10 / 0 == 1)";
+    
+    let mut lex = Lexer::new(code);
+    let tokens = lex.tokenize();
+    
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse_program().unwrap();
+    
+    let mut env = Environment::new();
+    let result = env.run(&ast);
+    
+    assert!(result.is_ok(), "Short-circuit 'and' should not evaluate the right side");
+    assert_eq!(env.get("x").unwrap().value, crate::interpreter::Value::Bool(false));
+}
+
+// Test 39: Test short-circuit evaluation for 'or'
+#[test]
+fn test_short_circuit_or() {
+    // If it evaluates the right side, it would throw a division by zero error.
+    // Because left is true, it should immediately return true without evaluating the right side.
+    let code = "var x = true or (10 / 0 == 1)";
+    
+    let mut lex = Lexer::new(code);
+    let tokens = lex.tokenize();
+    
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse_program().unwrap();
+    
+    let mut env = Environment::new();
+    let result = env.run(&ast);
+    
+    assert!(result.is_ok(), "Short-circuit 'or' should not evaluate the right side");
+    assert_eq!(env.get("x").unwrap().value, crate::interpreter::Value::Bool(true));
+}
+
+// Test 40: Test unary 'not' operator with truthiness
+#[test]
+fn test_unary_not() {
+    let code = "var a = not true\nvar b = not false\nvar c = not 0\nvar d = not \"\"";
+    
+    let mut lex = Lexer::new(code);
+    let tokens = lex.tokenize();
+    
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse_program().unwrap();
+    
+    let mut env = Environment::new();
+    env.run(&ast).unwrap();
+    
+    assert_eq!(env.get("a").unwrap().value, crate::interpreter::Value::Bool(false));
+    assert_eq!(env.get("b").unwrap().value, crate::interpreter::Value::Bool(true));
+    // 0 is false, so not 0 is true
+    assert_eq!(env.get("c").unwrap().value, crate::interpreter::Value::Bool(true));
+    // empty string is false, so not "" is true
+    assert_eq!(env.get("d").unwrap().value, crate::interpreter::Value::Bool(true));
+}
+
+// Test 41: Test unary minus operator
+#[test]
+fn test_unary_minus() {
+    let code = "var a = -5\nvar b = 10 + -3\nvar c = -(-5)\nvar d = -3.14";
+    
+    let mut lex = Lexer::new(code);
+    let tokens = lex.tokenize();
+    
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse_program().unwrap();
+    
+    let mut env = Environment::new();
+    env.run(&ast).unwrap();
+    
+    assert_eq!(env.get("a").unwrap().value, crate::interpreter::Value::Number(-5));
+    assert_eq!(env.get("b").unwrap().value, crate::interpreter::Value::Number(7));
+    assert_eq!(env.get("c").unwrap().value, crate::interpreter::Value::Number(5));
+    assert_eq!(env.get("d").unwrap().value, crate::interpreter::Value::Decimal(-3.14));
+}

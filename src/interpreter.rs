@@ -1,7 +1,7 @@
 // src/interpreter.rs
 
 use std::collections::HashMap;
-use crate::ast::{BinOp, Expr, Stmt};
+use crate::ast::{BinOp, Expr, Stmt, UnOp};
 
 /// Type alias for built-in Rust functions used in the standard library.
 pub type BuiltinFn = fn(Vec<Value>) -> InterpResult<Value>;
@@ -276,6 +276,25 @@ impl Environment {
             }
 
             Expr::Binary(left, op, right) => {
+                // Short-circuit evaluation for logical operators
+                if let BinOp::And = op {
+                    let left_val = self.eval_expr(left)?;
+                    if !self.is_truthy(&left_val) {
+                        return Ok(Value::Bool(false));
+                    }
+                    let right_val = self.eval_expr(right)?;
+                    return Ok(Value::Bool(self.is_truthy(&right_val)));
+                }
+                
+                if let BinOp::Or = op {
+                    let left_val = self.eval_expr(left)?;
+                    if self.is_truthy(&left_val) {
+                        return Ok(Value::Bool(true));
+                    }
+                    let right_val = self.eval_expr(right)?;
+                    return Ok(Value::Bool(self.is_truthy(&right_val)));
+                }
+
                 let left_val = self.eval_expr(left)?;
                 let right_val = self.eval_expr(right)?;
 
@@ -320,6 +339,7 @@ impl Environment {
                             BinOp::LessThan => Ok(Value::Bool(l < r)),
                             BinOp::GreaterEq => Ok(Value::Bool(l >= r)),
                             BinOp::LessEq => Ok(Value::Bool(l <= r)),
+                            BinOp::And | BinOp::Or => Err(InterpErr::Err("Logical operators handled earlier".to_string())),
                         }
                     }
                     // Both are decimals (or promoted to decimals)
@@ -346,6 +366,7 @@ impl Environment {
                             BinOp::LessThan => Ok(Value::Bool(l < r)),
                             BinOp::GreaterEq => Ok(Value::Bool(l >= r)),
                             BinOp::LessEq => Ok(Value::Bool(l <= r)),
+                            BinOp::And | BinOp::Or => Err(InterpErr::Err("Logical operators handled earlier".to_string())),
                         }
                     }
                     (Value::Str(l), Value::Str(r)) => {
@@ -357,6 +378,23 @@ impl Environment {
                         }
                     }
                     _ => Err(InterpErr::Err("Incompatible types in binary operation".to_string())),
+                }
+            }
+
+            Expr::Unary(op, right) => {
+                let right_val = self.eval_expr(right)?;
+                match op {
+                    UnOp::Negate => {
+                        match right_val {
+                            Value::Number(n) => Ok(Value::Number(-n)),
+                            Value::Decimal(n) => Ok(Value::Decimal(-n)),
+                            _ => Err(InterpErr::Err("Unary '-' can only be applied to Number or Decimal".to_string())),
+                        }
+                    }
+                    UnOp::Not => {
+                        // Use truthiness to evaluate 'not'
+                        Ok(Value::Bool(!self.is_truthy(&right_val)))
+                    }
                 }
             }
 
