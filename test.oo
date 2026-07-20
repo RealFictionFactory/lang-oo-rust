@@ -1,0 +1,4 @@
+use io
+var wiek is Number
+wiek = wiek.input("Podaj wiek: ")
+print("Za rok bedziesz miec {wiek + 1}")
