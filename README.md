@@ -1,6 +1,6 @@
-# Ó Programming Language
+# &Oacute; Programming Language
 
-Ó (pronounced "OO" like in "mood") is a small, dynamically typed, interpreted programming language built entirely in Rust. It was designed with readability and a natural feel in mind, featuring a clean syntax without semicolons and optional type annotations.
+&Oacute; (pronounced "OO" like in "mood") is a small, dynamically typed, interpreted programming language built entirely in Rust. It was designed with readability and a natural feel in mind, featuring a clean syntax without semicolons and optional type annotations.
 
 ## Project Goals
 
@@ -23,7 +23,7 @@ This is a hobbyist project created primarily for educational purposes. The main 
 
 ## Quick Example
 
-Here is a taste of what writing in "Ó" looks like:
+Here is a taste of what writing in "&Oacute;" looks like:
 
 ```text
 // Function with recursion
