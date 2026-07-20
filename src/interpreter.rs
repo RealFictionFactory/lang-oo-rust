@@ -436,59 +436,35 @@ impl Environment {
 
                 let obj_val = self.eval_expr(obj_expr)?;
 
+                // Wyjątek: metody mutujące (jak 'push' na tablicy) muszą być tu, 
+                // bo operują na referencji do zmiennej w środowisku.
+                if method_name == "push" {
+                    if let Expr::Variable(name) = &**obj_expr {
+                        if let Some(info) = self.get_mut(name) {
+                            if let Value::Array(arr_mut) = &mut info.value {
+                                arr_mut.push(arg_vals[0].clone());
+                                return Ok(Value::Null);
+                            }
+                        }
+                        return Err(InterpErr::Err("Can only push to an array variable".to_string()));
+                    }
+                    return Err(InterpErr::Err("Can only call push() on a variable".to_string()));
+                }
+
+                // Cała reszta to metody niewymagające mutacji (pure functions).
+                // Szukamy ich w zarejestrowanych rozszerzeniach!
+                if let Some(ext_fn) = self.extensions.get(method_name) {
+                    return ext_fn(obj_val, arg_vals);
+                }
+
+                // Jeśli nie znaleziono metody
                 match &obj_val {
-                    Value::Array(arr) => {
-                        match method_name.as_str() {
-                            "push" => {
-                                if arg_vals.len() != 1 {
-                                    return Err(InterpErr::Err("push() expects 1 argument".to_string()));
-                                }
-                                if let Expr::Variable(name) = &**obj_expr {
-                                    if let Some(info) = self.get_mut(name) {
-                                        if let Value::Array(arr_mut) = &mut info.value {
-                                            arr_mut.push(arg_vals[0].clone());
-                                            return Ok(Value::Null);
-                                        }
-                                    }
-                                    return Err(InterpErr::Err("Can only push to an array variable".to_string()));
-                                }
-                                return Err(InterpErr::Err("Can only call push() on a variable".to_string()));
-                            }
-                            "length" => return Ok(Value::Number(arr.len() as i64)),
-                            _ => {
-                                // Check for extension methods
-                                if let Some(ext_fn) = self.extensions.get(method_name) {
-                                    return ext_fn(obj_val, arg_vals);
-                                }
-                                return Err(InterpErr::Err(format!("Method '{}' not supported on Array", method_name)));
-                            }
-                        }
-                    }
-                    Value::Str(s) => {
-                        match method_name.as_str() {
-                            "upper" => return Ok(Value::Str(s.to_uppercase())),
-                            "lower" => return Ok(Value::Str(s.to_lowercase())),
-                            "length" => return Ok(Value::Number(s.chars().count() as i64)),
-                            _ => {
-                                // Check for extension methods
-                                if let Some(ext_fn) = self.extensions.get(method_name) {
-                                    return ext_fn(obj_val, arg_vals);
-                                }
-                                return Err(InterpErr::Err(format!("Method '{}' not supported on String", method_name)));
-                            }
-                        }
-                    }
-                    
-                    // Teraz Number, Decimal i wszystkie inne typy wpadają tutaj:
-                    _ => {
-                        // Check for extension methods
-                        if let Some(ext_fn) = self.extensions.get(method_name) {
-                            return ext_fn(obj_val, arg_vals);
-                        }
-                        return Err(InterpErr::Err(format!("Method '{}' not supported on this type", method_name)));
-                    }
+                    Value::Array(_) => return Err(InterpErr::Err(format!("Method '{}' not supported on Array", method_name))),
+                    Value::Str(_) => return Err(InterpErr::Err(format!("Method '{}' not supported on String", method_name))),
+                    _ => return Err(InterpErr::Err(format!("Method '{}' not supported on this type", method_name))),
                 }
             }
+
         }
     }
 

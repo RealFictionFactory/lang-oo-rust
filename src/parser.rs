@@ -504,58 +504,76 @@ impl Parser {
             expr = Expr::IndexGet(Box::new(expr), Box::new(index));
         }
 
-        // Postfix method call: obj.method(args)
-        while self.peek() == Some(&Token::Dot) {
-            self.next(); // consume '.'
-            
-            let method_name = if let Some(Token::Ident(name)) = self.next().cloned() {
-                name
-            } else {
-                return Err("Expected method name after '.'".to_string());
-            };
-
-            if self.next() != Some(&Token::LParen) {
-                return Err("Expected '(' after method name".to_string());
-            }
-
-            let mut args = Vec::new();
-            if self.peek() != Some(&Token::RParen) {
-                loop {
-                    let arg = self.parse_expr()?;
-                    args.push(arg);
-                    match self.next() {
-                        Some(Token::Comma) => continue,
-                        Some(Token::RParen) => break,
-                        _ => return Err("Expected ',' or ')' in method arguments".to_string()),
+        // ZAMIAST TRZECH WHILE, DAJEMY JEDEN LOOP:
+        loop {
+            match self.peek() {
+                // Postfix indexing: arr[0] or arr[i]
+                Some(Token::LBracket) => {
+                    self.next(); // consume '['
+                    let index = self.parse_expr()?;
+                    if self.next() != Some(&Token::RBracket) {
+                        return Err("Expected ']' after index".to_string());
                     }
+                    expr = Expr::IndexGet(Box::new(expr), Box::new(index));
                 }
-            } else {
-                self.next(); // consume ')'
-            }
+                
+                // Postfix method call: obj.method(args)
+                Some(Token::Dot) => {
+                    self.next(); // consume '.'
+                    
+                    let method_name = if let Some(Token::Ident(name)) = self.next().cloned() {
+                        name
+                    } else {
+                        return Err("Expected method name after '.'".to_string());
+                    };
 
-            expr = Expr::MethodCall(Box::new(expr), method_name, args);
-        }
-
-        // Postfix function call: foo(args)
-        while self.peek() == Some(&Token::LParen) {
-            self.next(); // consume '('
-            let mut args = Vec::new();
-            
-            if self.peek() != Some(&Token::RParen) {
-                loop {
-                    let arg = self.parse_expr()?;
-                    args.push(arg);
-                    match self.next() {
-                        Some(Token::Comma) => continue,
-                        Some(Token::RParen) => break,
-                        _ => return Err("Expected ',' or ')' in function call".to_string()),
+                    if self.next() != Some(&Token::LParen) {
+                        return Err("Expected '(' after method name".to_string());
                     }
+
+                    let mut args = Vec::new();
+                    if self.peek() != Some(&Token::RParen) {
+                        loop {
+                            let arg = self.parse_expr()?;
+                            args.push(arg);
+                            match self.next() {
+                                Some(Token::Comma) => continue,
+                                Some(Token::RParen) => break,
+                                _ => return Err("Expected ',' or ')' in method arguments".to_string()),
+                            }
+                        }
+                    } else {
+                        self.next(); // consume ')'
+                    }
+
+                    expr = Expr::MethodCall(Box::new(expr), method_name, args);
                 }
-            } else {
-                self.next(); // consume ')'
+                
+                // Postfix function call: foo(args)
+                Some(Token::LParen) => {
+                    self.next(); // consume '('
+                    let mut args = Vec::new();
+                    
+                    if self.peek() != Some(&Token::RParen) {
+                        loop {
+                            let arg = self.parse_expr()?;
+                            args.push(arg);
+                            match self.next() {
+                                Some(Token::Comma) => continue,
+                                Some(Token::RParen) => break,
+                                _ => return Err("Expected ',' or ')' in function call".to_string()),
+                            }
+                        }
+                    } else {
+                        self.next(); // consume ')'
+                    }
+                    
+                    expr = Expr::Call(Box::new(expr), args);
+                }
+                
+                // Jeśli to nie '[', '.' ani '(', kończymy parsowanie postfixów
+                _ => break,
             }
-            
-            expr = Expr::Call(Box::new(expr), args);
         }
 
         Ok(expr)
