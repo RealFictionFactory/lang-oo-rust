@@ -3,10 +3,10 @@
 use std::collections::HashMap;
 use crate::ast::{BinOp, Expr, Stmt};
 
-// Type for our built-in Rust functions
+/// Type alias for built-in Rust functions used in the standard library.
 pub type BuiltinFn = fn(Vec<Value>) -> InterpResult<Value>;
 
-// Values that can exist during program execution
+/// Represents all possible runtime values in the language.
 #[derive(Debug, Clone)]
 pub enum Value {
     Number(i64),
@@ -19,7 +19,8 @@ pub enum Value {
     Null,
 }
 
-// Manual implementation of PartialEq that ignores function pointers (Builtin and Function)
+// Manual implementation of PartialEq that ignores function pointers (Builtin and Function).
+// Functions are simply treated as not equal because they cannot be safely compared by value.
 impl PartialEq for Value {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
@@ -29,18 +30,18 @@ impl PartialEq for Value {
             (Value::Bool(a), Value::Bool(b)) => a == b,
             (Value::Array(a), Value::Array(b)) => a == b,
             (Value::Null, Value::Null) => true,
-            // Functions are simply treated as not equal because they cannot be safely compared
             _ => false, 
         }
     }
 }
 
-// Implementation of the Display/ToString logic for Value
+/// Implementation of the Display/ToString logic for Value.
 impl Value {
     pub fn to_string(&self) -> String {
         match self {
             Value::Number(n) => n.to_string(),
             Value::Decimal(n) => {
+                // Print decimal as integer if it has no fractional part (e.g., 5.0 -> "5")
                 if n.fract() == 0.0 {
                     format!("{}", *n as i64)
                 } else {
@@ -60,17 +61,17 @@ impl Value {
     }
 }
 
-// Structure keeping value and the flag saying if it is mutable
+/// Structure keeping a value and a flag indicating whether it is mutable.
 #[derive(Debug, Clone)]
 pub struct VarInfo {
     pub value: Value,
     pub is_const: bool,
 }
 
-// Type for extension functions: takes the receiver object and a list of arguments
+/// Type alias for extension functions: takes the receiver object and a list of arguments.
 pub type ExtensionFn = fn(Value, Vec<Value>) -> InterpResult<Value>;
 
-// Environment handles variable scopes (global vs local)
+/// Environment handles variable scopes (global vs local) and stores registered extensions.
 #[derive(Debug, Clone)]
 pub struct Environment {
     pub vars: HashMap<String, VarInfo>,
@@ -78,6 +79,7 @@ pub struct Environment {
     pub extensions: HashMap<String, ExtensionFn>,
 }
 
+/// Represents control flow interruptions or runtime errors during execution.
 #[derive(Debug, Clone)]
 pub enum InterpErr {
     Return(Value),
@@ -89,6 +91,7 @@ pub enum InterpErr {
 pub type InterpResult<T> = Result<T, InterpErr>;
 
 impl Environment {
+    /// Creates a new global environment and loads the standard library into it.
     pub fn new() -> Self {
         let mut env = Environment { 
             vars: HashMap::new(), 
@@ -96,14 +99,15 @@ impl Environment {
             extensions: HashMap::new(),
         };
         
-        // Load the anonymous standard library
+        // Load the standard library (global functions and extensions)
         crate::stdlib::register_stdlib(&mut env);
         
         env
     }
 
+    /// Creates a child environment with a parent scope. 
+    /// Extensions are passed down to the child scope.
     pub fn with_parent(parent: Environment) -> Self {
-        // We pass the extensions down to the child scope
         Environment { 
             vars: HashMap::new(), 
             parent: Some(Box::new(parent.clone())),
@@ -111,6 +115,7 @@ impl Environment {
         }
     }
 
+    /// Looks up a variable in the current scope, recursively checking parent scopes.
     pub fn get(&self, name: &str) -> Option<&VarInfo> {
         if let Some(v) = self.vars.get(name) {
             Some(v)
@@ -121,6 +126,7 @@ impl Environment {
         }
     }
 
+    /// Looks up a variable for mutation in the current scope, recursively checking parent scopes.
     pub fn get_mut(&mut self, name: &str) -> Option<&mut VarInfo> {
         if self.vars.contains_key(name) {
             return self.vars.get_mut(name);
@@ -131,11 +137,12 @@ impl Environment {
         None
     }
 
+    /// Inserts a variable into the current environment scope.
     pub fn insert(&mut self, name: String, info: VarInfo) {
         self.vars.insert(name, info);
     }
 
-    // Główna funkcja, która bierze listę instrukcji (AST) i je wykonuje
+    /// Main execution function. Takes a list of AST statements and executes them.
     pub fn run(&mut self, stmts: &[Stmt]) -> Result<(), String> {
         for stmt in stmts {
             match self.eval_stmt(stmt) {
@@ -149,6 +156,7 @@ impl Environment {
         Ok(())
     }
 
+    /// Evaluates a single statement.
     fn eval_stmt(&mut self, stmt: &Stmt) -> InterpResult<()> {
         match stmt {
             Stmt::VarDecl(name, type_name, expr) => {
@@ -171,11 +179,11 @@ impl Environment {
                 let value = self.eval_expr(expr)?;
                 if let Some(info) = self.get_mut(name) {
                     if info.is_const {
-                        return Err(InterpErr::Err(format!("Nie można zmienić wartości stałej '{}'", name)));
+                        return Err(InterpErr::Err(format!("Cannot change value of constant '{}'", name)));
                     }
                     info.value = value;
                 } else {
-                    return Err(InterpErr::Err(format!("Zmienna '{}' nie jest zadeklarowana. Użyj 'var' lub 'let'.", name)));
+                    return Err(InterpErr::Err(format!("Variable '{}' is not declared. Use 'var' or 'let'.", name)));
                 }
             }
 
@@ -215,7 +223,7 @@ impl Environment {
                         }
                     }
                 } else {
-                    return Err(InterpErr::Err("Pętla 'loop' działa tylko z liczbami Numeric (całkowitymi)".to_string()));
+                    return Err(InterpErr::Err("'loop' only works with Numeric (integer) values".to_string()));
                 }
             }
 
@@ -265,6 +273,7 @@ impl Environment {
         Ok(())
     }
 
+    /// Evaluates an expression and returns its computed Value.
     fn eval_expr(&mut self, expr: &Expr) -> InterpResult<Value> {
         match expr {
             Expr::Number(n) => Ok(Value::Number(*n)),
@@ -274,14 +283,14 @@ impl Environment {
             
             Expr::Variable(name) => {
                 self.get(name).map(|info| info.value.clone())
-                    .ok_or_else(|| InterpErr::Err(format!("Zmienna '{}' nie jest zdefiniowana", name)))
+                    .ok_or_else(|| InterpErr::Err(format!("Variable '{}' is not defined", name)))
             }
 
             Expr::Binary(left, op, right) => {
                 let left_val = self.eval_expr(left)?;
                 let right_val = self.eval_expr(right)?;
 
-                // String concatenation
+                // String concatenation: if either side is a String, concatenate them
                 if let BinOp::Add = op {
                     if let (Value::Str(_), _) | (_, Value::Str(_)) = (&left_val, &right_val) {
                         let l_str = left_val.to_string();
@@ -306,13 +315,13 @@ impl Environment {
                             BinOp::Multiply => Ok(Value::Number(l * r)),
                             BinOp::Divide => {
                                 if r == 0 {
-                                    return Err(InterpErr::Err("Błąd wykonania: Dzielenie przez zero!".to_string()));
+                                    return Err(InterpErr::Err("Runtime error: Division by zero!".to_string()));
                                 }
                                 Ok(Value::Number(l / r)) // Integer division!
                             }
                             BinOp::Modulo => {
                                 if r == 0 {
-                                    return Err(InterpErr::Err("Błąd wykonania: Modulo przez zero!".to_string()));
+                                    return Err(InterpErr::Err("Runtime error: Modulo by zero!".to_string()));
                                 }
                                 Ok(Value::Number(l % r))
                             }
@@ -332,13 +341,13 @@ impl Environment {
                             BinOp::Multiply => Ok(Value::Decimal(l * r)),
                             BinOp::Divide => {
                                 if r == 0.0 {
-                                    return Err(InterpErr::Err("Błąd wykonania: Dzielenie przez zero!".to_string()));
+                                    return Err(InterpErr::Err("Runtime error: Division by zero!".to_string()));
                                 }
                                 Ok(Value::Decimal(l / r))
                             }
                             BinOp::Modulo => {
                                 if r == 0.0 {
-                                    return Err(InterpErr::Err("Błąd wykonania: Modulo przez zero!".to_string()));
+                                    return Err(InterpErr::Err("Runtime error: Modulo by zero!".to_string()));
                                 }
                                 Ok(Value::Decimal(l % r))
                             }
@@ -355,10 +364,10 @@ impl Environment {
                             BinOp::Add => Ok(Value::Str(l + &r)),
                             BinOp::Equals => Ok(Value::Bool(l == r)),
                             BinOp::NotEquals => Ok(Value::Bool(l != r)),
-                            _ => Err(InterpErr::Err("Nieobsługiwany operator dla stringów".to_string())),
+                            _ => Err(InterpErr::Err("Unsupported operator for strings".to_string())),
                         }
                     }
-                    _ => Err(InterpErr::Err("Niekompatybilne typy w operacji binarnej".to_string())),
+                    _ => Err(InterpErr::Err("Incompatible types in binary operation".to_string())),
                 }
             }
 
@@ -427,7 +436,6 @@ impl Environment {
                 }
             }
 
-            // Method call
             Expr::MethodCall(obj_expr, method_name, args) => {
                 let mut arg_vals = Vec::new();
                 for arg in args {
@@ -436,8 +444,8 @@ impl Environment {
 
                 let obj_val = self.eval_expr(obj_expr)?;
 
-                // Wyjątek: metody mutujące (jak 'push' na tablicy) muszą być tu, 
-                // bo operują na referencji do zmiennej w środowisku.
+                // Exception: mutating methods (like 'push' on an array) must be handled here, 
+                // because they operate on a mutable reference to the variable in the environment.
                 if method_name == "push" {
                     if let Expr::Variable(name) = &**obj_expr {
                         if let Some(info) = self.get_mut(name) {
@@ -451,24 +459,23 @@ impl Environment {
                     return Err(InterpErr::Err("Can only call push() on a variable".to_string()));
                 }
 
-                // Cała reszta to metody niewymagające mutacji (pure functions).
-                // Szukamy ich w zarejestrowanych rozszerzeniach!
+                // The rest are non-mutating methods (pure functions).
+                // We look them up in the registered extensions!
                 if let Some(ext_fn) = self.extensions.get(method_name) {
                     return ext_fn(obj_val, arg_vals);
                 }
 
-                // Jeśli nie znaleziono metody
+                // If the method was not found
                 match &obj_val {
                     Value::Array(_) => return Err(InterpErr::Err(format!("Method '{}' not supported on Array", method_name))),
                     Value::Str(_) => return Err(InterpErr::Err(format!("Method '{}' not supported on String", method_name))),
                     _ => return Err(InterpErr::Err(format!("Method '{}' not supported on this type", method_name))),
                 }
             }
-
         }
     }
 
-    // Helper to get default values for types
+    /// Helper to get default values for types (e.g., when declaring a variable without an initial value).
     fn get_default_value(&self, type_name: &Option<String>) -> InterpResult<Value> {
         match type_name {
             Some(t) => match t.as_str() {
@@ -482,7 +489,7 @@ impl Environment {
         }
     }
 
-    // Helper to evaluate truthiness of any value
+    /// Helper to evaluate the truthiness of any value.
     fn is_truthy(&self, val: &Value) -> bool {
         match val {
             Value::Bool(b) => *b,

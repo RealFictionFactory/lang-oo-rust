@@ -1,6 +1,7 @@
 // src/lexer.rs
 
-// Represents single token in our language
+/// Represents a single token in the language.
+/// Tokens are the smallest units of syntax produced by the Lexer.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token {
     // Keywords
@@ -55,16 +56,18 @@ pub enum Token {
     Dot,        // .
 
     // Special
-    NewLine,   // \n - end line, important when no semi colon
+    NewLine,   // \n - end of line, important when there are no semicolons
     Eof,       // end of file
 }
 
+/// The Lexer (or Tokenizer) converts raw source code text into a sequence of Tokens.
 pub struct Lexer {
     input: Vec<char>,
     pos: usize,
 }
 
 impl Lexer {
+    /// Creates a new Lexer instance from a source code string.
     pub fn new(input: &str) -> Self {
         Lexer {
             input: input.chars().collect(),
@@ -72,12 +75,12 @@ impl Lexer {
         }
     }
 
-    // Zwraca następny znak, nie przesuwając wskaźnika
+    /// Returns the next character without advancing the position pointer.
     fn peek(&self) -> Option<&char> {
         self.input.get(self.pos)
     }
 
-    // Zwraca następny znak, przesuwając wskaźnik
+    /// Returns the next character and advances the position pointer.
     fn next_char(&mut self) -> Option<char> {
         let ch = self.input.get(self.pos).copied();
         if ch.is_some() {
@@ -86,17 +89,17 @@ impl Lexer {
         ch
     }
 
-    // Główna funkcja zamieniająca tekst na listę tokenów
+    /// The main function that converts the input text into a list of tokens.
     pub fn tokenize(&mut self) -> Vec<Token> {
         let mut tokens = Vec::new();
 
         while let Some(ch) = self.next_char() {
-            // Ignorujemy spacje i taby
+            // Ignore spaces and tabs
             if ch.is_whitespace() && ch != '\n' {
                 continue;
             }
 
-            // Nowa linia = koniec instrukcji w języku "Ó"
+            // Newline = end of statement in the "Ó" language
             if ch == '\n' {
                 tokens.push(Token::NewLine);
                 continue;
@@ -115,7 +118,7 @@ impl Lexer {
                     }
                 }
                 
-                // Check for decimal point (but not range '..')
+                // Check for decimal point (but not a range '..')
                 if let Some(&'.') = self.peek() {
                     // Look ahead to the next character after '.'
                     if let Some(&next_next) = self.input.get(self.pos + 1) {
@@ -135,7 +138,7 @@ impl Lexer {
                     }
                 }
                 
-                // Parse as Decimal if it contains a dot, otherwise Numeric
+                // Parse as Decimal if it contains a dot, otherwise Number
                 if num_str.contains('.') {
                     let num = num_str.parse::<f64>().unwrap();
                     tokens.push(Token::Decimal(num));
@@ -146,12 +149,12 @@ impl Lexer {
                 continue;
             }
 
-            // Zmienne i słowa kluczowe (litery)
+            // Identifiers and keywords (letters)
             if ch.is_alphabetic() || ch == '_' {
                 let mut ident = String::new();
                 ident.push(ch);
                 while let Some(&next_ch) = self.peek() {
-                    if next_ch.is_alphanumeric() || next_ch == '_' { // alow digits and  '_' in names
+                    if next_ch.is_alphanumeric() || next_ch == '_' { // allow digits and '_' in names
                         ident.push(next_ch);
                         self.next_char();
                     } else {
@@ -159,7 +162,7 @@ impl Lexer {
                     }
                 }
 
-                // Sprawdzamy, czy to słowo kluczowe
+                // Check if it's a keyword
                 let token = match ident.as_str() {
                     "var" => Token::Var,
                     "let" => Token::Let,
@@ -181,7 +184,7 @@ impl Lexer {
                 continue;
             }
 
-            // Stringi (w podwójnych cudzysłowach)
+            // Strings (enclosed in double quotes)
             if ch == '"' {
                 let mut str_val = String::new();
                 while let Some(next_ch) = self.next_char() {
@@ -194,7 +197,7 @@ impl Lexer {
                 continue;
             }
 
-            // Operatory jednoznakowe i dwuznakowe
+            // Single-character and two-character operators
             match ch {
                 '=' => {
                     if let Some(&'=') = self.peek() {
@@ -225,7 +228,7 @@ impl Lexer {
                         self.next_char();
                         tokens.push(Token::NotEq);
                     } else {
-                        panic!("Nieznany znak: ! (czy chodziło o '!='?)");
+                        panic!("Unknown character: ! (did you mean '!='?)");
                     }
                 }
                 '+' => {
@@ -246,20 +249,19 @@ impl Lexer {
                 }
                 '*' => tokens.push(Token::Star),
                 '/' => {
-                    // Check if next character is also '/'
+                    // Check if the next character is also '/'
                     if let Some(&'/') = self.peek() {
-                        // We have a comment. Ignore all characters until (\n)
-                        // or EOF.
+                        // We have a comment. Ignore all characters until newline (\n) or EOF.
                         while let Some(&next_ch) = self.peek() {
                             if next_ch == '\n' {
                                 break; // End of line - stop ignoring
                             }
                             self.next_char(); // get next character
                         }
-                        // Do not add any token here. Main loop will add Token::NewLine
-                        // when reaches '\n' in next step
+                        // Do not add any token here. The main loop will add Token::NewLine
+                        // when it reaches '\n' in the next step.
                     } else {
-                        // No '/' as a next character - just a division
+                        // No '/' as the next character - just a division
                         tokens.push(Token::Slash);
                     }
                 }
@@ -279,11 +281,12 @@ impl Lexer {
                         tokens.push(Token::Dot);
                     }
                 }
-                _ => panic!("Nieznany znak: {}", ch),
+                _ => panic!("Unknown character: {}", ch),
             }
         }
 
-        tokens.push(Token::Eof); // Zawsze kończymy strumień tokenów znacznikiem końca pliku
+        // Always end the token stream with an End-Of-File marker
+        tokens.push(Token::Eof);
         tokens
     }
 }

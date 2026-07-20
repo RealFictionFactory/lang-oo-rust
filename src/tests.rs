@@ -1,11 +1,13 @@
 // src/tests.rs
 
+/// Unit tests for the "Ó" programming language.
+/// Covers lexer, parser, and interpreter functionality.
 use crate::lexer::{Lexer, Token};
 use crate::parser::Parser;
 use crate::interpreter::Environment;
 use crate::ast::Stmt;
 
-// Test 1: Sprawdzamy, czy lekser poprawnie dzieli kod na tokeny
+// Test 1: Check if the lexer correctly splits the code into tokens
 #[test]
 fn test_lexer_basic() {
     let mut lex = Lexer::new("var x = 10");
@@ -17,32 +19,32 @@ fn test_lexer_basic() {
     assert_eq!(tokens[3], Token::Number(10));
 }
 
-// Test 2: Sprawdzamy, czy komentarze są poprawnie ignorowane przez lekser
+// Test 2: Check if comments are correctly ignored by the lexer
 #[test]
 fn test_lexer_comments() {
-    let mut lex = Lexer::new("var x = 5 // to jest komentarz\n");
+    let mut lex = Lexer::new("var x = 5 // this is a comment\n");
     let tokens = lex.tokenize();
     
-    // Oczekujemy, że po liczbie 5 od razu pojawi się nowa linia, a komentarz zniknie
+    // We expect that after the number 5, a newline appears immediately, and the comment is gone
     assert_eq!(tokens[3], Token::Number(5));
     assert_eq!(tokens[4], Token::NewLine);
 }
 
-// Test 3: Sprawdzamy, czy parser poprawnie buduje drzewo dla deklaracji zmiennej
+// Test 3: Check if the parser correctly builds the AST for a variable declaration
 #[test]
 fn test_parser_var_decl() {
     let mut lex = Lexer::new("var y = 20");
     let tokens = lex.tokenize();
     
     let mut parser = Parser::new(tokens);
-    let ast = parser.parse_program().unwrap(); // unwrap() jest ok w testach, jak wywali błąd - test nie przejdzie
+    let ast = parser.parse_program().unwrap(); // unwrap() is ok in tests; if it throws an error, the test fails
 
-    assert_eq!(ast.len(), 1); // Powinna być jedna instrukcja
-    // Możemy też sprawdzić, czy to właściwy węzeł (wymaga importu Stmt z ast)
+    assert_eq!(ast.len(), 1); // There should be one statement
+    // We can also check if it's the correct node (requires importing Stmt from ast)
     // assert_eq!(ast[0], crate::ast::Stmt::VarDecl("y".to_string(), crate::ast::Expr::Number(20)));
 }
 
-// Test 4: Sprawdzamy, czy interpreter nie wyrzuca błędów przy prostym kodzie
+// Test 4: Check if the interpreter does not throw errors on simple code
 #[test]
 fn test_interpreter_runs_without_error() {
     let code = "var a = 10\nvar b = 20\nprint(a + b)";
@@ -56,10 +58,10 @@ fn test_interpreter_runs_without_error() {
     let mut env = Environment::new();
     let result = env.run(&ast);
     
-    assert!(result.is_ok()); // Sprawdzamy, czy wykonanie zakończyło się sukcesem
+    assert!(result.is_ok()); // Check if execution ended successfully
 }
 
-// Test 5: Sprawdzamy błędy składniowe (np. brak '=' i 'is' po nazwie zmiennej)
+// Test 5: Check syntax errors (e.g., missing '=' and 'is' after variable name)
 #[test]
 fn test_parser_syntax_error() {
     let mut lex = Lexer::new("var x 10");
@@ -68,11 +70,11 @@ fn test_parser_syntax_error() {
     let mut parser = Parser::new(tokens);
     let result = parser.parse_program();
     
-    assert!(result.is_err()); // Oczekujemy, że parser zwróci błąd (Err)
+    assert!(result.is_err()); // Expect the parser to return an error (Err)
     assert_eq!(result.unwrap_err(), "Variable declaration must have a type 'is Type' or an initial value '='");
 }
 
-// Test 6: Sprawdzamy, czy parser poprawnie buduje AST z 'if' i 'else'
+// Test 6: Check if the parser correctly builds the AST for 'if' and 'else'
 #[test]
 fn test_parser_if_else_ast() {
     let code = "if x == 5 { print(1) } else { print(2) }";
@@ -85,20 +87,20 @@ fn test_parser_if_else_ast() {
     assert_eq!(ast.len(), 1);
     match &ast[0] {
         Stmt::If(_, if_body, else_body) => {
-            // Sprawdzamy, czy oba bloki mają po jednej instrukcji (print)
-            assert_eq!(if_body.len(), 1, "Blok 'if' powinien mieć 1 instrukcję");
-            assert_eq!(else_body.len(), 1, "Blok 'else' powinien mieć 1 instrukcję");
+            // Check if both blocks have one statement each (print)
+            assert_eq!(if_body.len(), 1, "The 'if' block should have 1 statement");
+            assert_eq!(else_body.len(), 1, "The 'else' block should have 1 statement");
         }
-        _ => panic!("Oczekiwano węzła Stmt::If, otrzymano coś innego!"),
+        _ => panic!("Expected a Stmt::If node, got something else!"),
     }
 }
 
-// Test 7: Sprawdzamy poprawne wykonanie 'if/else' przez interpreter
-// Zwróć uwagę, że kod w teście nie ma 'print', po prostu sprawdzamy czy 
-// wykonanie kodu, który wchodzi w 'else' nie powoduje błędów.
+// Test 7: Check the correct execution of 'if/else' by the interpreter
+// Note that the code in the test does not have 'print', we just check if 
+// executing code that enters the 'else' block does not cause errors.
 #[test]
 fn test_interpreter_if_else_execution() {
-    // x wynosi 10, więc warunek x == 5 jest fałszywy. Powinien wejść w 'else'.
+    // x is 10, so the condition x == 5 is false. It should enter 'else'.
     let code = "var x = 10\nif x == 5 { var a = 1 } else { var b = 2 }";
     
     let mut lex = Lexer::new(code);
@@ -110,10 +112,10 @@ fn test_interpreter_if_else_execution() {
     let mut env = Environment::new();
     let result = env.run(&ast);
     
-    assert!(result.is_ok(), "Interpreter powinien wykonać kod bez błędów");
+    assert!(result.is_ok(), "Interpreter should execute the code without errors");
 }
 
-// Test 8: Sprawdzamy, czy pętla 'loop' poprawnie się buduje
+// Test 8: Check if the 'loop' is built correctly
 #[test]
 fn test_parser_for_loop_ast() {
     let code = "loop i from 1..5 { print(i) }";
@@ -125,16 +127,16 @@ fn test_parser_for_loop_ast() {
     
     assert_eq!(ast.len(), 1);
     match &ast[0] {
-        // Wzorzec: Loop(nazwa_zmiennej, start, end, blok_kodu)
+        // Pattern: Loop(variable_name, start, end, code_block)
         Stmt::Loop(var_name, _, _, body) => {
-            assert_eq!(var_name, "i", "Zmienna iteracyjna powinna nazywać się 'i'");
-            assert_eq!(body.len(), 1, "Blok pętli powinien mieć 1 instrukcję");
+            assert_eq!(var_name, "i", "The iteration variable should be named 'i'");
+            assert_eq!(body.len(), 1, "The loop block should have 1 statement");
         }
-        _ => panic!("Oczekiwano węzła Stmt::Loop, otrzymano coś innego!"),
+        _ => panic!("Expected a Stmt::Loop node, got something else!"),
     }
 }
 
-// Test 9: Sprawdzamy, czy interpreter używa truthiness (0 jest false, 5 jest true)
+// Test 9: Check if the interpreter uses truthiness (0 is false, 5 is true)
 #[test]
 fn test_interpreter_if_truthiness() {
     // 0 is false, so it should enter the else block
@@ -153,11 +155,11 @@ fn test_interpreter_if_truthiness() {
     assert_eq!(env.get("result").unwrap().value, crate::interpreter::Value::Str("pass".to_string()));
 }
 
-// Test 10: Sprawdzamy wykonanie pętli 'for' z użyciem zmiennej iteracyjnej
+// Test 10: Check the execution of a 'for' loop using the iteration variable
 #[test]
 fn test_interpreter_for_loop_runs() {
-    // Pętla, która po prostu wykonuje operację matematyczną. 
-    // Nie wypisujemy na ekran, żeby nie śmiecić w konsoli podczas testów.
+    // A loop that simply performs a mathematical operation. 
+    // We don't print to the screen to avoid cluttering the console during tests.
     let code = "loop i from 1..3 { var x = i + 10 }";
     
     let mut lex = Lexer::new(code);
@@ -169,10 +171,10 @@ fn test_interpreter_for_loop_runs() {
     let mut env = Environment::new();
     let result = env.run(&ast);
     
-    assert!(result.is_ok(), "Pętla powinna wykonać się bez błędów");
+    assert!(result.is_ok(), "The loop should execute without errors");
 }
 
-// Test 11: Sprawdzamy, czy można nadpisać zmienną (Assign)
+// Test 11: Check if a variable can be overwritten (Assign)
 #[test]
 fn test_interpreter_variable_assignment() {
     let code = "var x = 5\nx = 20";
@@ -186,15 +188,15 @@ fn test_interpreter_variable_assignment() {
     let mut env = Environment::new();
     let result = env.run(&ast);
     
-    assert!(result.is_ok(), "Przypisanie do istniejącej zmiennej powinno działać");
+    assert!(result.is_ok(), "Assignment to an existing variable should work");
     
-    // Wchodzimy do VarInfo i sprawdzamy pole .value
-    let var_info = env.get("x").expect("Zmienna x powinna istnieć");
+    // We go into VarInfo and check the .value field
+    let var_info = env.get("x").expect("Variable x should exist");
     assert_eq!(var_info.value, crate::interpreter::Value::Number(20));
-    assert!(!var_info.is_const, "x nie powinno być stałą");
+    assert!(!var_info.is_const, "x should not be a constant");
 }
 
-// Test 12: Sprawdzamy, czy przypisanie do niezadeklarowanej zmiennej rzuca błąd
+// Test 12: Check if assigning to an undeclared variable throws an error
 #[test]
 fn test_interpreter_assign_undeclared_fails() {
     let code = "y = 10";
@@ -208,14 +210,14 @@ fn test_interpreter_assign_undeclared_fails() {
     let mut env = Environment::new();
     let result = env.run(&ast);
     
-    assert!(result.is_err(), "Powinien wystąpić błąd przypisania do niezadeklarowanej zmiennej");
+    assert!(result.is_err(), "An error should occur when assigning to an undeclared variable");
     assert_eq!(
         result.unwrap_err(), 
-        "Zmienna 'y' nie jest zadeklarowana. Użyj 'var' lub 'let'."
+        "Variable 'y' is not declared. Use 'var' or 'let'."
     );
 }
 
-// Test 13: Sprawdzamy, czy próba zmiany stałej (let) kończy się błędem
+// Test 13: Check if attempting to change a constant (let) results in an error
 #[test]
 fn test_interpreter_const_reassignment_fails() {
     let code = "let y = 10\ny = 20";
@@ -229,14 +231,14 @@ fn test_interpreter_const_reassignment_fails() {
     let mut env = Environment::new();
     let result = env.run(&ast);
     
-    assert!(result.is_err(), "Powinien wystąpić błąd przy zmianie stałej");
+    assert!(result.is_err(), "An error should occur when changing a constant");
     assert_eq!(
         result.unwrap_err(), 
-        "Nie można zmienić wartości stałej 'y'"
+        "Cannot change value of constant 'y'"
     );
 }
 
-// Test 14: Sprawdzamy, czy parser poprawnie buduje AST dla stałej 'let'
+// Test 14: Check if the parser correctly builds the AST for a 'let' constant
 #[test]
 fn test_parser_let_decl() {
     let mut lex = Lexer::new("let y = 20");
@@ -246,14 +248,14 @@ fn test_parser_let_decl() {
     let ast = parser.parse_program().unwrap();
 
     assert_eq!(ast.len(), 1);
-    // Sprawdzamy, czy to węzeł Let
-    assert!(matches!(ast[0], Stmt::Let(..)), "Oczekiwano węzła Stmt::Let");
+    // Check if it's a Let node
+    assert!(matches!(ast[0], Stmt::Let(..)), "Expected a Stmt::Let node");
 }
 
-// Test 15: Sprawdzamy priorytet operatorów (mnożenie przed dodawaniem)
+// Test 15: Check operator precedence (multiplication before addition)
 #[test]
 fn test_interpreter_math_precedence() {
-    // 2 + 3 * 4 powinno dać 14, a nie 20
+    // 2 + 3 * 4 should equal 14, not 20
     let code = "var x = 2 + 3 * 4";
     
     let mut lex = Lexer::new(code);
@@ -265,11 +267,11 @@ fn test_interpreter_math_precedence() {
     let mut env = Environment::new();
     env.run(&ast).unwrap();
     
-    let var_info = env.get("x").expect("Zmienna x powinna istnieć");
+    let var_info = env.get("x").expect("Variable x should exist");
     assert_eq!(var_info.value, crate::interpreter::Value::Number(14));
 }
 
-// Test 16: Sprawdzamy, czy dzielenie przez zero rzuca błąd
+// Test 16: Check if division by zero throws an error
 #[test]
 fn test_interpreter_division_by_zero() {
     let code = "var y = 10 / 0";
@@ -283,11 +285,11 @@ fn test_interpreter_division_by_zero() {
     let mut env = Environment::new();
     let result = env.run(&ast);
     
-    assert!(result.is_err(), "Dzielenie przez zero powinno rzucić błąd");
-    assert_eq!(result.unwrap_err(), "Błąd wykonania: Dzielenie przez zero!");
+    assert!(result.is_err(), "Division by zero should throw an error");
+    assert_eq!(result.unwrap_err(), "Runtime error: Division by zero!");
 }
 
-// Test 17: Sprawdzamy operatory porównania
+// Test 17: Check comparison operators
 #[test]
 fn test_interpreter_comparison_operators() {
     // 5 < 10 -> true
@@ -309,12 +311,12 @@ fn test_interpreter_comparison_operators() {
     assert_eq!(env.get("e").unwrap().value, crate::interpreter::Value::Bool(true));
 }
 
-// Test 18: Sprawdzamy skrócone operatory przypisania (+=, -=)
+// Test 18: Check compound assignment operators (+=, -=)
 #[test]
 fn test_interpreter_compound_assignment() {
     // var x = 5
-    // x += 10  (x powinno wynosić 15)
-    // x -= 3   (x powinno wynosić 12)
+    // x += 10  (x should be 15)
+    // x -= 3   (x should be 12)
     let code = "var x = 5\nx += 10\nx -= 3";
     
     let mut lex = Lexer::new(code);
@@ -326,11 +328,11 @@ fn test_interpreter_compound_assignment() {
     let mut env = Environment::new();
     env.run(&ast).unwrap();
     
-    let var_info = env.get("x").expect("Zmienna x powinna istnieć");
+    let var_info = env.get("x").expect("Variable x should exist");
     assert_eq!(var_info.value, crate::interpreter::Value::Number(12));
 }
 
-// Test 19: Sprawdzamy obsługę literałów logicznych (true/false)
+// Test 19: Check boolean literals (true/false)
 #[test]
 fn test_interpreter_boolean_literals() {
     let code = "var a = true\nvar b = false";

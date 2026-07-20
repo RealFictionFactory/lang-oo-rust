@@ -15,6 +15,9 @@ use lexer::Lexer;
 use parser::Parser;
 use interpreter::Environment;
 
+/// Executes the provided source code string.
+/// This function handles the entire pipeline: Lexing -> Parsing -> Evaluation.
+/// Any syntax or runtime errors are printed to standard error.
 fn run_code(code: &str) {
     let mut lex = Lexer::new(code);
     let tokens = lex.tokenize();
@@ -25,19 +28,23 @@ fn run_code(code: &str) {
             let mut interpreter = Environment::new();
             match interpreter.run(&ast) {
                 Ok(_) => {}
-                Err(err) => eprintln!("Błąd wykonania: {}", err),
+                Err(err) => eprintln!("Runtime error: {}", err),
             }
         }
         Err(err) => {
-            eprintln!("Błąd składni: {}", err);
+            eprintln!("Syntax error: {}", err);
         }
     }
 }
 
+/// Entry point of the program.
+/// Supports two modes:
+/// 1. File mode: runs a script passed as a command-line argument (e.g., `cargo run -- script.oo`).
+/// 2. Interactive mode (REPL): allows typing and evaluating code line-by-line.
 fn main() {
     let args: Vec<String> = env::args().collect();
 
-    // Tryb pliku: np. cargo run -- script.oo
+    // File mode: e.g., cargo run -- script.oo
     if args.len() > 1 {
         let filename = &args[1];
         
@@ -46,11 +53,11 @@ fn main() {
                 run_code(&code);
             }
             Err(e) => {
-                eprintln!("Nie udało się wczytać pliku '{}': {}", filename, e);
+                eprintln!("Failed to read file '{}': {}", filename, e);
             }
         }
     } else {
-        // Tryb interaktywny (REPL)
+        // Interactive mode (REPL)
         let stdin = io::stdin();
         let mut stdout = io::stdout();
 
@@ -59,7 +66,7 @@ fn main() {
             let mut is_first_line = true;
 
             loop {
-                // Zmieniamy znak zachęty, jeśli jesteśmy w kolejnej linii
+                // Change the prompt if we are on a subsequent line
                 if is_first_line {
                     print!("ó> ");
                 } else {
@@ -72,18 +79,18 @@ fn main() {
                 
                 let trimmed = line.trim();
 
-                // Komenda exit kończy program natychmiast
+                // The 'exit' command terminates the program immediately
                 if trimmed == "exit" {
                     println!("See you around!");
                     return;
                 }
 
-                // Kropka w pustej linii kończy czytanie i uruchamia kod
+                // A dot on an empty line ends input and runs the code
                 if trimmed == "." {
                     break;
                 }
 
-                // Obsługa Ctrl+D (EOF) - wychodzimy z programu
+                // Handle Ctrl+D (EOF) - exit the program
                 if bytes == 0 {
                     if !input.is_empty() {
                         run_code(&input);
@@ -96,7 +103,7 @@ fn main() {
                 is_first_line = false;
             }
 
-            // Jeśli wpisano cokolwiek przed kropką, uruchamiamy
+            // If anything was entered before the dot, run it
             if !input.trim().is_empty() {
                 run_code(&input);
             }
@@ -104,6 +111,6 @@ fn main() {
     }
 }
 
-// Testy na końcu pliku
+// Tests at the end of the file
 #[cfg(test)]
 mod tests;

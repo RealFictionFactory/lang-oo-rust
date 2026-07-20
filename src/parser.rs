@@ -3,22 +3,24 @@
 use crate::ast::{BinOp, Expr, Stmt};
 use crate::lexer::{Token, Lexer};
 
+/// The Parser takes a list of tokens from the Lexer and constructs an Abstract Syntax Tree (AST).
 pub struct Parser {
     tokens: Vec<Token>,
     pos: usize,
 }
 
 impl Parser {
+    /// Creates a new Parser instance from a vector of tokens.
     pub fn new(tokens: Vec<Token>) -> Self {
         Parser { tokens, pos: 0 }
     }
 
-    // Pomocnicze: zwraca obecny token
+    /// Helper: returns the current token without advancing the position pointer.
     fn peek(&self) -> Option<&Token> {
         self.tokens.get(self.pos)
     }
 
-    // Pomocnicze: zwraca obecny token i przesuwa wskaźnik
+    /// Helper: returns the current token and advances the position pointer.
     fn next(&mut self) -> Option<&Token> {
         let token = self.tokens.get(self.pos);
         if token.is_some() {
@@ -27,14 +29,14 @@ impl Parser {
         token
     }
 
-    // Pomocnicze: pomija wszystkie tokeny NewLine (ważne przy braku średników!)
+    /// Helper: skips all NewLine tokens (important since the language does not use semicolons).
     fn skip_newlines(&mut self) {
         while let Some(Token::NewLine) = self.peek() {
             self.next();
         }
     }
 
-    // Główna funkcja parsująca program
+    /// Main function that parses the entire program into a list of statements.
     pub fn parse_program(&mut self) -> Result<Vec<Stmt>, String> {
         let mut stmts = Vec::new();
         self.skip_newlines();
@@ -51,7 +53,7 @@ impl Parser {
         Ok(stmts)
     }
 
-    // Parse single instruction
+    /// Parses a single statement/instruction.
     fn parse_stmt(&mut self) -> Result<Stmt, String> {
         match self.peek() {
             Some(Token::Var) => self.parse_var_decl(),
@@ -89,7 +91,7 @@ impl Parser {
         }
     }
 
-    // var name [is Type] [= expr]
+    /// Parses a mutable variable declaration: `var name [is Type] [= expr]`
     fn parse_var_decl(&mut self) -> Result<Stmt, String> {
         self.next(); // consume 'var'
         
@@ -122,7 +124,7 @@ impl Parser {
         Ok(Stmt::VarDecl(name, type_name, init_expr))
     }
 
-    // let name [is Type] [= expr]
+    /// Parses an immutable constant declaration: `let name [is Type] [= expr]`
     fn parse_let(&mut self) -> Result<Stmt, String> {
         self.next(); // consume 'let'
         
@@ -155,38 +157,38 @@ impl Parser {
         Ok(Stmt::Let(name, type_name, init_expr))
     }
 
-    // if warunek { ... } else { ... }
+    /// Parses an if/else statement: `if condition { ... } else { ... }`
     fn parse_if(&mut self) -> Result<Stmt, String> {
-        self.next(); // zjadamy 'if'
+        self.next(); // consume 'if'
         let condition = self.parse_expr()?;
         
         self.skip_newlines();
         if self.next() != Some(&Token::LBrace) {
-            return Err("Oczekiwano '{' po warunku if".to_string());
+            return Err("Expected '{' after if condition".to_string());
         }
         
         let if_body = self.parse_block()?;
         
-        // --- NOWA LOGIKA DLA ELSE ---
-        // Pomijamy nowe linie, bo ktoś może napisać `} \n else`
+        // --- LOGIC FOR ELSE ---
+        // Skip newlines because someone might write `} \n else`
         self.skip_newlines();
         
         let mut else_body = Vec::new();
         
-        // Sprawdzamy, czy po bloku if występuje słowo 'else'
+        // Check if the word 'else' appears after the if block
         if self.peek() == Some(&Token::Else) {
-            self.next(); // zjadamy 'else'
+            self.next(); // consume 'else'
             
-            // Obsługa "else if" - bardzo łatwe w rekurencji!
-            // Jeśli po 'else' jest 'if', parsujemy go jako pojedynczą instrukcję w bloku else
+            // Handling "else if" - very easy with recursion!
+            // If 'if' follows 'else', we parse it as a single statement in the else block
             if self.peek() == Some(&Token::If) {
                 let nested_if = self.parse_if()?;
                 else_body.push(nested_if);
             } else {
-                // Zwykły 'else { ... }'
+                // Standard 'else { ... }'
                 self.skip_newlines();
                 if self.next() != Some(&Token::LBrace) {
-                    return Err("Oczekiwano '{' po 'else'".to_string());
+                    return Err("Expected '{' after 'else'".to_string());
                 }
                 else_body = self.parse_block()?;
             }
@@ -195,38 +197,38 @@ impl Parser {
         Ok(Stmt::If(condition, if_body, else_body))
     }
 
-    // loop i from 1..10 { ... }
+    /// Parses a loop statement: `loop i from start..end { ... }`
     fn parse_loop(&mut self) -> Result<Stmt, String> {
-        self.next(); // zjadamy 'for'
+        self.next(); // consume 'loop'
         
         let var_name = if let Some(Token::Ident(name)) = self.next().cloned() {
             name
         } else {
-            return Err("Oczekiwano nazwy zmiennej po 'loop'".to_string());
+            return Err("Expected variable name after 'loop'".to_string());
         };
 
         if self.next() != Some(&Token::From) {
-            return Err("Oczekiwano słowa 'from' w pętli loop".to_string());
+            return Err("Expected 'from' keyword in loop".to_string());
         }
 
         let start_expr = self.parse_expr()?;
 
         if self.next() != Some(&Token::Range) {
-            return Err("Oczekiwano '..' w pętli loop".to_string());
+            return Err("Expected '..' in loop".to_string());
         }
 
         let end_expr = self.parse_expr()?;
 
         self.skip_newlines();
         if self.next() != Some(&Token::LBrace) {
-            return Err("Oczekiwano '{' po zakresie w loop".to_string());
+            return Err("Expected '{' after range in loop".to_string());
         }
 
         let body = self.parse_block()?;
         Ok(Stmt::Loop(var_name, start_expr, end_expr, body))
     }
 
-        // func name(param1, param2) { ... }
+    /// Parses a function declaration: `func name(param1, param2) { ... }`
     fn parse_func_decl(&mut self) -> Result<Stmt, String> {
         self.next(); // consume 'func'
         
@@ -267,7 +269,7 @@ impl Parser {
         Ok(Stmt::FuncDecl(name, params, body))
     }
 
-    // return expr
+    /// Parses a return statement: `return [expr]`
     fn parse_return(&mut self) -> Result<Stmt, String> {
         self.next(); // consume 'return'
         
@@ -280,7 +282,7 @@ impl Parser {
         Ok(Stmt::Return(Some(expr)))
     }
 
-    // Assignment: x = expr, arr[i] = expr, x += expr, etc.
+    /// Parses an assignment: `x = expr`, `arr[i] = expr`, `x += expr`, etc.
     fn parse_assign_from_expr(&mut self, left: Expr) -> Result<Stmt, String> {
         match self.next().cloned() {
             Some(Token::Assign) => {
@@ -327,18 +329,18 @@ impl Parser {
         }
     }
 
-    // Parsuje blok kodu w klamrach { ... }
+    /// Parses a block of code enclosed in braces `{ ... }`
     fn parse_block(&mut self) -> Result<Vec<Stmt>, String> {
         let mut stmts = Vec::new();
         self.skip_newlines();
 
         while let Some(token) = self.peek() {
             if token == &Token::RBrace {
-                self.next(); // zjadamy '}'
+                self.next(); // consume '}'
                 break;
             }
             if token == &Token::Eof {
-                return Err("Nieoczekiwany koniec pliku, brak '}'".to_string());
+                return Err("Unexpected end of file, missing '}'".to_string());
             }
             
             let stmt = self.parse_stmt()?;
@@ -349,10 +351,10 @@ impl Parser {
         Ok(stmts)
     }
 
-    // --- PARSOWANIE WYRAŻEŃ (EXPRESIONS) ---
-    // Na razie uproszczone: zajmuje się tylko + i -
-    // Kolejność: parse_expr (dla + i -) -> parse_term (dla * i /) -> parse_factor (liczby, zmienne)
+    // --- EXPRESSION PARSING ---
+    // Precedence: parse_expr (+, -, ==, !=, >, <) -> parse_term (*, /, %) -> parse_factor (literals, variables, parentheses)
     
+    /// Parses expressions handling addition, subtraction, and comparisons.
     fn parse_expr(&mut self) -> Result<Expr, String> {
         let mut left = self.parse_term()?;
 
@@ -369,7 +371,7 @@ impl Parser {
                 _ => break,
             };
 
-            self.next(); // zjadamy operator
+            self.next(); // consume operator
             let right = self.parse_term()?;
             left = Expr::Binary(Box::new(left), op, Box::new(right));
         }
@@ -377,7 +379,7 @@ impl Parser {
         Ok(left)
     }
 
-    // Ten poziom obsługuje mnożenie i dzielenie (wyższy priorytet niż + i -)
+    /// Parses expressions handling multiplication, division, and modulo (higher precedence than + and -).
     fn parse_term(&mut self) -> Result<Expr, String> {
         let mut left = self.parse_factor()?;
 
@@ -388,7 +390,7 @@ impl Parser {
                 Token::Percent => BinOp::Modulo,
                 _ => break,
             };
-            self.next(); // zjadamy operator
+            self.next(); // consume operator
             
             let right = self.parse_factor()?;
             left = Expr::Binary(Box::new(left), op, Box::new(right));
@@ -397,7 +399,7 @@ impl Parser {
         Ok(left)
     }
 
-    // Najniższy poziom: liczby, stringi, zmienne, (wyrazenie)
+    /// Parses the lowest level expressions: literals, variables, parentheses, arrays, and string interpolation.
     fn parse_factor(&mut self) -> Result<Expr, String> {
         let mut expr = match self.next().cloned() {
             Some(Token::Number(n)) => Expr::Number(n),
@@ -493,21 +495,11 @@ impl Parser {
             _ => return Err("Unexpected token in expression".to_string()),
         };
 
-        // Postfix indexing: arr[0] or arr[i]
-        // We use a while loop to allow multidimensional access like matrix[0][1]
-        while self.peek() == Some(&Token::LBracket) {
-            self.next(); // consume '['
-            let index = self.parse_expr()?;
-            if self.next() != Some(&Token::RBracket) {
-                return Err("Expected ']' after index".to_string());
-            }
-            expr = Expr::IndexGet(Box::new(expr), Box::new(index));
-        }
-
-        // ZAMIAST TRZECH WHILE, DAJEMY JEDEN LOOP:
+        // Instead of three while loops, we use a single loop:
         loop {
             match self.peek() {
                 // Postfix indexing: arr[0] or arr[i]
+                // Allows multidimensional access like matrix[0][1]
                 Some(Token::LBracket) => {
                     self.next(); // consume '['
                     let index = self.parse_expr()?;
@@ -571,7 +563,7 @@ impl Parser {
                     expr = Expr::Call(Box::new(expr), args);
                 }
                 
-                // Jeśli to nie '[', '.' ani '(', kończymy parsowanie postfixów
+                // If it's not '[', '.' or '(', we stop parsing postfixes
                 _ => break,
             }
         }

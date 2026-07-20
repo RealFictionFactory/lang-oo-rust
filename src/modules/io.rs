@@ -1,8 +1,15 @@
 // src/modules/io.rs
 
-use crate::interpreter::{ExtensionFn, InterpErr, InterpResult, Value};
-use std::io::Write;
+//! Module for I/O related extension functions.
+//! Currently empty as `input` was moved to the global standard library.
+//! Future I/O extensions (e.g., file reading/writing) can be registered here.
+
+use crate::interpreter::ExtensionFn;
 use std::collections::HashMap;
 
-pub fn register(exts: &mut HashMap<String, ExtensionFn>) {
+/// Registers I/O extension functions into the provided extensions map.
+/// Currently a placeholder for future functionality.
+pub fn register(_exts: &mut HashMap<String, ExtensionFn>) {
+    // Intentionally empty.
+    // Previously hosted the `input` extension, which is now a global builtin function.
 }
