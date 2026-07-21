@@ -2,7 +2,9 @@
 
 use crate::interpreter::{Environment, InterpErr, InterpResult, Value, VarInfo};
 use std::cell::RefCell;
+use std::env;
 use std::io::{self, Write};
+use std::process::Command;
 use std::rc::Rc;
 
 /// Registers the standard library functions and extensions into the given environment.
@@ -17,6 +19,24 @@ pub fn register_stdlib(env: &Rc<RefCell<Environment>>) {
 
     Environment::insert(env, "input".to_string(), VarInfo { 
         value: Value::Builtin(builtin_input), 
+        is_const: true,
+        type_name: None
+    });
+
+    Environment::insert(env, "args".to_string(), VarInfo { 
+        value: Value::Builtin(builtin_args), 
+        is_const: true,
+        type_name: None
+    });
+
+    Environment::insert(env, "exit".to_string(), VarInfo { 
+        value: Value::Builtin(builtin_exit), 
+        is_const: true,
+        type_name: None
+    });
+
+    Environment::insert(env, "shell".to_string(), VarInfo { 
+        value: Value::Builtin(builtin_shell), 
         is_const: true,
         type_name: None
     });
@@ -240,5 +260,43 @@ fn ext_filter(receiver: Value, args: Vec<Value>) -> InterpResult<Value> {
         Ok(Value::Array(Rc::new(RefCell::new(new_arr))))
     } else {
         Err(InterpErr::Err("filter() requires an Array receiver and a function argument".to_string()))
+    }
+}
+
+/// args() -> returns an Array of Strings containing the command-line arguments.
+fn builtin_args(_args: Vec<Value>) -> InterpResult<Value> {
+    let args: Vec<Value> = env::args().map(|s| Value::Str(s)).collect();
+    Ok(Value::Array(Rc::new(RefCell::new(args))))
+}
+
+/// exit(code) -> terminates the program immediately with the given exit code.
+fn builtin_exit(args: Vec<Value>) -> InterpResult<Value> {
+    let code = if let Some(Value::Number(c)) = args.get(0) { *c as i32 } else { 0 };
+    std::process::exit(code);
+}
+
+/// shell(command) -> executes a command in the system shell and returns its output as a String.
+fn builtin_shell(args: Vec<Value>) -> InterpResult<Value> {
+    if let Some(Value::Str(cmd)) = args.get(0) {
+        // Use 'sh' on Unix and 'cmd' on Windows for cross-platform compatibility
+        let shell = if cfg!(target_os = "windows") { "cmd" } else { "sh" };
+        let flag = if cfg!(target_os = "windows") { "/C" } else { "-c" };
+        
+        let output = Command::new(shell)
+            .arg(flag)
+            .arg(cmd)
+            .output();
+
+        match output {
+            Ok(o) => {
+                let stdout = String::from_utf8_lossy(&o.stdout).to_string();
+                let stderr = String::from_utf8_lossy(&o.stderr).to_string();
+                // Combine stdout and stderr to capture all output
+                Ok(Value::Str(stdout + &stderr))
+            }
+            Err(e) => Err(InterpErr::Err(format!("Failed to execute shell command: {}", e))),
+        }
+    } else {
+        Err(InterpErr::Err("shell() requires a String command argument".to_string()))
     }
 }

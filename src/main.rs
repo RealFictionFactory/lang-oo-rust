@@ -28,11 +28,15 @@ fn run_code(code: &str) {
             let interpreter = Environment::new();
             match Environment::run(&interpreter, &ast) {
                 Ok(_) => {}
-                Err(err) => eprintln!("Runtime error: {}", err),
+                Err(err) => {
+                    eprintln!("Runtime error: {}", err);
+                    std::process::exit(1);
+                }
             }
         }
         Err(err) => {
             eprintln!("Syntax error: {}", err);
+            std::process::exit(1);
         }
     }
 }

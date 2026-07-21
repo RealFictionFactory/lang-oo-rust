@@ -104,6 +104,17 @@ impl Lexer {
     pub fn tokenize(&mut self) -> Vec<Token> {
         let mut tokens = Vec::new();
 
+        // Shebang support: ignore the first line if it starts with #!
+        if self.input.starts_with(&['#', '!']) {
+            // Skip characters until we hit a newline or end of file
+            while let Some(&ch) = self.peek() {
+                if ch == '\n' {
+                    break;
+                }
+                self.next_char();
+            }
+        }
+
         while let Some(ch) = self.next_char() {
             // Ignore spaces and tabs
             if ch.is_whitespace() && ch != '\n' {

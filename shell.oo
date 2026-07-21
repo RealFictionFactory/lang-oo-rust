@@ -1,0 +1,13 @@
+#!/usr/bin/env ooi
+
+var all_args = args()
+if all_args.length() < 2 {
+    print("Usage: shell.oo <name>")
+    exit(1)
+}
+
+var name = all_args[1]
+print("Hello, {name}!")
+
+var output = shell("echo 'Executing shell command'")
+print("Shell output: ", output)

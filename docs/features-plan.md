@@ -1,16 +1,22 @@
 ### Mapa drogowa rozwoju języka "Ó":
 
-3. **Wsparcie dla skryptowania systemowego (Shell Scripting Support)**
-   * **Cel:** Umożliwienie używania języka "Ó" jako języka skryptowego w powłokach systemowych (np. Bash), w tym obsługa shebanga (`#!`), kodów wyjścia (exit codes), argumentów wiersza poleceń (CLI) oraz wywoływania komend systemowych.
+4. **Zarządzanie zasobami (Instrukcja `with`)**
+   * **Cel:** Automatyczne wywoływanie metod czyszczących (np. `close()`) na obiektach (takich jak `File` czy przyszłe strumienie/gniazda sieciowe) po opuszczeniu bloku kodu, zwalniając programistę z tego obowiązku i zapobiegając wyciekom zasobów, nawet w przypadku wystąpienia błędów.
    * **Jak zrobimy:** 
-     * *Shebang:* W `lexer.rs` dodamy regułę ignorującą pierwszą linię pliku, jeśli zaczyna się od `#!` (do końca linii).
-     * *Kody wyjścia:* W `main.rs` zmapujemy wynik działania interpretera na kody procesu (`std::process::exit(0)` dla sukcesu, `1` dla błędu). Dodamy też globalną funkcję `exit(code)` w `stdlib.rs`.
-     * *Argumenty CLI:* W `stdlib.rs` dodamy globalną funkcję `args()`, która zwróci tablicę `Array` zawierającą argumenty przekazane do skryptu.
-     * *Komendy systemowe:* W `stdlib.rs` dodamy funkcję `shell(command)`, która użyje `std::process::Command` do wykonania komendy w systemowym shellu i zwróci jej wynik jako `String`.
+     * W AST dodamy nową instrukcję `Stmt::With(Expr, String, Vec<Stmt>)` (wyrażenie inicjalizujące obiekt, nazwa zmiennej, ciało bloku).
+     * W parserze rozpoznamy słowo kluczowe `with`, sparsujemy wyrażenie, słowo kluczowe `as`, nazwę zmiennej i blok `{ ... }`.
+     * W interpreterze zewaluujemy wyrażenie, przypiszemy obiekt do zmiennej w obecnym scope i wykonamy blok kodu.
+     * **Kluczowy element:** Niezależnie od tego, czy blok zakończył się sukcesem, czy błędem (`InterpErr::Err`), interpreter przed propagacją błędu sprawdzi, czy na obiekcie istnieje metoda `close()` (wyszukana w `extensions`) i wywoła ją.
+   * *Przykład składni:*
+     ```Ó
+     with file("data.txt") as f {
+         f.write("Hello")
+         f.append("World")
+     } // Tutaj interpreter automatycznie wywoła f.close()
+     ```
+   * *Pomysły/Uwagi:* Składnia wzorowana na Pythonie (`with ... as ...`). Idealnie współgra z mechanizmem `execute / onError`, ponieważ gwarantuje posprzątanie zasobów, zanim błąd zostanie przechwycony przez blok `onError`. Implementacja tego punktu prawdopodobnie zbiegnie się w przyszłości z rozbudową obiektu `File` o prawdziwe otwieranie strumieni (uchwytów) wymagające jawnego zamykania.
 
-4. **Wczytywanie zewnętrznych plików `.oo` (Moduły)**
+
+5. **Wczytywanie zewnętrznych plików `.oo` (Moduły)**
    * **Cel:** `use "math.oo"` wczyta kod z innego pliku i udostępni jego funkcje.
    * **Jak zrobimy:** Rozszerzymy `Stmt::Use`. W interpreterze, zamiast szukać modułu w wbudowanym kodzie Rusta, otworzymy plik, zlekserujemy go, sparsujemy i wykonamy w obecnym (lub globalnym) środowisku.
-
-5. **`context` operator**
-   * **Cel:** `context file { file.operation() }` trzyma konkteks zmiennej po to, by ją "zamknąć" na końcu. Jeszcze nie wiem jak ostatecznie bęzie to wyglądać i czy nawa kontekst jest tu odpowiednia. Może lepiej `using` jak w Kotlinie?
