@@ -379,7 +379,7 @@ impl Environment {
             Stmt::Continue => return Err(InterpErr::Continue),
 
             Stmt::Use(module_name) => {
-                crate::modules::load_module(&mut env.borrow_mut().extensions, module_name)?;
+                crate::modules::load_module(env, module_name)?;
             }
         }
         Ok(())

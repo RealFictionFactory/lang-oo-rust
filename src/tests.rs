@@ -1236,3 +1236,35 @@ fn test_array_push_rc_refcell() {
     assert_eq!(Environment::get(&env, "l").unwrap().value, crate::interpreter::Value::Number(4));
     assert_eq!(Environment::get(&env, "v3").unwrap().value, crate::interpreter::Value::Number(4));
 }
+
+// Test 68: Test File I/O operations (requires 'use io')
+#[test]
+fn test_file_operations() {
+    let filename = "oo_test_file_tmp.txt";
+    let _ = std::fs::remove_file(filename); // Cleanup before test
+
+    let code = format!("
+        use io
+        
+        var f = file(\"{}\")
+        var exists_before = f.exists()
+        f.write(\"Line 1\\n\")
+        f.append(\"Line 2\\n\")
+        var content = f.read()
+        var exists_after = f.exists()
+    ", filename);
+    
+    let mut lex = Lexer::new(&code);
+    let tokens = lex.tokenize();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse_program().unwrap();
+    
+    let env = Environment::new();
+    Environment::run(&env, &ast).unwrap();
+    
+    assert_eq!(Environment::get(&env, "exists_before").unwrap().value, crate::interpreter::Value::Bool(false));
+    assert_eq!(Environment::get(&env, "exists_after").unwrap().value, crate::interpreter::Value::Bool(true));
+    assert_eq!(Environment::get(&env, "content").unwrap().value, crate::interpreter::Value::Str("Line 1\nLine 2\n".to_string()));
+    
+    let _ = std::fs::remove_file(filename); // Cleanup after test
+}
