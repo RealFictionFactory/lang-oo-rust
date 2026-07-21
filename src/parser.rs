@@ -435,6 +435,47 @@ impl Parser {
     /// Parses the lowest level expressions: literals, variables, parentheses, arrays, and string interpolation.
     fn parse_factor(&mut self) -> Result<Expr, String> {
         let mut expr = match self.next().cloned() {
+            Some(Token::Match) => {
+                let condition = self.parse_expr()?;
+                
+                self.skip_newlines();
+                if self.next() != Some(&Token::LBrace) {
+                    return Err("Expected '{' after match expression".to_string());
+                }
+                
+                let mut arms = Vec::new();
+                self.skip_newlines();
+                
+                while self.peek() != Some(&Token::RBrace) {
+                    // Pattern: either '_' (wildcard) or an expression
+                    let pattern = if self.peek() == Some(&Token::Ident("_".to_string())) {
+                        self.next(); // consume '_'
+                        None
+                    } else {
+                        Some(self.parse_expr()?)
+                    };
+                    
+                    if self.next() != Some(&Token::Arrow) {
+                        return Err("Expected '->' in match arm".to_string());
+                    }
+                    
+                    // Body: either a block { ... } or a single expression
+                    let body = if self.peek() == Some(&Token::LBrace) {
+                        self.next(); // consume '{'
+                        self.parse_block()?
+                    } else {
+                        let expr = self.parse_expr()?;
+                        vec![Stmt::ExprStmt(expr)]
+                    };
+                    
+                    arms.push((pattern, body));
+                    self.skip_newlines();
+                }
+                
+                self.next(); // consume '}'
+                return Ok(Expr::Match(Box::new(condition), arms));
+            }
+
             Some(Token::If) => {
                 let condition = self.parse_expr()?;
                 

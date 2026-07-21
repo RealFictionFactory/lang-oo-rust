@@ -1010,3 +1010,72 @@ fn test_type_check_default_dict() {
         panic!("Variable d should be a Dict");
     }
 }
+
+// Test 55: Test match expression with literals
+#[test]
+fn test_match_literals() {
+    let code = "var x = 2\nvar name = match x { 0 -> \"zero\" 1 -> \"one\" _ -> \"many\" }";
+    
+    let mut lex = Lexer::new(code);
+    let tokens = lex.tokenize();
+    
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse_program().unwrap();
+    
+    let mut env = Environment::new();
+    env.run(&ast).unwrap();
+    
+    assert_eq!(env.get("name").unwrap().value, crate::interpreter::Value::Str("many".to_string()));
+}
+
+// Test 56: Test match expression with block bodies
+#[test]
+fn test_match_block_bodies() {
+    let code = "var x = 1\nvar result = match x { 0 -> { var a = 10 a + 5 } 1 -> { var b = 20 b * 2 } _ -> 0 }";
+    
+    let mut lex = Lexer::new(code);
+    let tokens = lex.tokenize();
+    
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse_program().unwrap();
+    
+    let mut env = Environment::new();
+    env.run(&ast).unwrap();
+    
+    assert_eq!(env.get("result").unwrap().value, crate::interpreter::Value::Number(40));
+}
+
+// Test 57: Test match with string literals
+#[test]
+fn test_match_strings() {
+    let code = "var lang = \"Ó\"\nvar is_cool = match lang { \"Ó\" -> true \"Java\" -> false _ -> false }";
+    
+    let mut lex = Lexer::new(code);
+    let tokens = lex.tokenize();
+    
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse_program().unwrap();
+    
+    let mut env = Environment::new();
+    env.run(&ast).unwrap();
+    
+    assert_eq!(env.get("is_cool").unwrap().value, crate::interpreter::Value::Bool(true));
+}
+
+// Test 58: Test match exhaustion (no matching arm)
+#[test]
+fn test_match_exhaustion_fails() {
+    let code = "var x = 99\nvar y = match x { 0 -> \"zero\" 1 -> \"one\" }";
+    
+    let mut lex = Lexer::new(code);
+    let tokens = lex.tokenize();
+    
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse_program().unwrap();
+    
+    let mut env = Environment::new();
+    let result = env.run(&ast);
+    
+    assert!(result.is_err(), "Match should fail if no arm matches and there is no wildcard");
+    assert_eq!(result.unwrap_err(), "Match expression exhausted with no matching arm");
+}

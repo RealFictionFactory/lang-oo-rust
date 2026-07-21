@@ -51,6 +51,9 @@ pub enum Expr {
     /// A unary operation: `operator right` (e.g., `-5` or `not true`)
     Unary(UnOp, Box<Expr>),
     
+    /// A match expression: `match value { pattern -> body }`
+    Match(Box<Expr>, Vec<(Option<Expr>, Vec<Stmt>)>),
+
     /// An array literal: `[1, 2, 3]`
     Array(Vec<Expr>),
     

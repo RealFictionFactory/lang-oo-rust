@@ -648,6 +648,29 @@ impl Environment {
                     return self.eval_block_as_expr(else_body);
                 }
             }
+
+            Expr::Match(target_expr, arms) => {
+                let target_val = self.eval_expr(target_expr)?;
+                
+                for (pattern, body) in arms {
+                    let is_match = if let Some(p_expr) = pattern {
+                        // Evaluate the pattern expression and compare it with the target value
+                        let p_val = self.eval_expr(p_expr)?;
+                        target_val == p_val
+                    } else {
+                        // None represents the wildcard '_', which matches everything
+                        true
+                    };
+                    
+                    if is_match {
+                        // Use eval_block_as_expr to return the value from the arm's body
+                        return self.eval_block_as_expr(body);
+                    }
+                }
+                
+                // If no arm matches, throw an error
+                return Err(InterpErr::Err("Match expression exhausted with no matching arm".to_string()));
+            }
         }
     }
 

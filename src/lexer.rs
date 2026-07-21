@@ -27,6 +27,8 @@ pub enum Token {
     Execute,
     OnError,
     Colon,      // :
+    Match,
+    Arrow,      // ->
 
     // Literals (values)
     Number(i64),
@@ -193,6 +195,7 @@ impl Lexer {
                     "use" => Token::Use,
                     "execute" | "exec" | "exe" => Token::Execute,
                     "onError" | "error" => Token::OnError,
+                    "match" => Token::Match,
                     _ => Token::Ident(ident),
                 };
                 tokens.push(token);
@@ -274,6 +277,9 @@ impl Lexer {
                     if let Some(&'=') = self.peek() {
                         self.next_char();
                         tokens.push(Token::MinusEq);
+                    } else if let Some(&'>') = self.peek() {
+                        self.next_char();
+                        tokens.push(Token::Arrow);
                     } else {
                         tokens.push(Token::Minus);
                     }
