@@ -79,6 +79,9 @@ pub enum Expr {
 
     /// An error handling expression: `execute { ... } onError(err) { ... }`
     ExecuteCatch(Vec<Stmt>, Option<String>, Vec<Stmt>),
+
+    /// An anonymous function (lambda): `fun(params) { body }`
+    Lambda(Vec<String>, Vec<Stmt>),
 }
 
 /// Represents an Abstract Syntax Tree (AST) node for a Statement (Instruction).

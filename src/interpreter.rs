@@ -1,6 +1,8 @@
 // src/interpreter.rs
 
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
 use crate::ast::{BinOp, Expr, Stmt, UnOp};
 
 /// Type alias for built-in Rust functions used in the standard library.
@@ -15,13 +17,13 @@ pub enum Value {
     Bool(bool),
     Array(Vec<Value>),
     Dict(HashMap<String, Value>),
-    Function(Vec<String>, Vec<Stmt>),
+    // Stores Rc<RefCell<Environment>> to allow closures to share state with their definition scope
+    Function(Vec<String>, Vec<Stmt>, Rc<RefCell<Environment>>),
     Builtin(BuiltinFn),
     Null,
 }
 
-// Manual implementation of PartialEq that ignores function pointers (Builtin and Function).
-// Functions are simply treated as not equal because they cannot be safely compared by value.
+// Manual implementation of PartialEq that ignores function pointers and environments.
 impl PartialEq for Value {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
@@ -32,6 +34,7 @@ impl PartialEq for Value {
             (Value::Array(a), Value::Array(b)) => a == b,
             (Value::Dict(a), Value::Dict(b)) => a == b,
             (Value::Null, Value::Null) => true,
+            (Value::Function(a, b, _), Value::Function(c, d, _)) => a == c && b == d,
             _ => false, 
         }
     }
@@ -43,15 +46,8 @@ impl Value {
         match self {
             Value::Number(n) => n.to_string(),
             Value::Decimal(n) => {
-                // Use Rust's default formatting, but ensure we always show a decimal point
-                // e.g., 1.0 -> "1.0", 3.14 -> "3.14"
                 let s = format!("{}", n);
-
-                if s.contains('.') {
-                    s
-                } else {
-                    format!("{}.0", s)
-                }
+                if s.contains('.') { s } else { format!("{}.0", s) }
             }
             Value::Str(s) => s.clone(),
             Value::Bool(b) => b.to_string(),
@@ -65,7 +61,7 @@ impl Value {
                     .collect();
                 format!("{{{}}}", formatted.join(", "))
             }
-            Value::Function(_, _) => "<func>".to_string(),
+            Value::Function(_, _, _) => "<func>".to_string(),
             Value::Builtin(_) => "<builtin func>".to_string(),
             Value::Null => "null".to_string(),
         }
@@ -84,10 +80,11 @@ pub struct VarInfo {
 pub type ExtensionFn = fn(Value, Vec<Value>) -> InterpResult<Value>;
 
 /// Environment handles variable scopes (global vs local) and stores registered extensions.
-#[derive(Debug, Clone)]
+/// Wrapped in Rc<RefCell<T>> to allow shared ownership and interior mutability for closures.
+#[derive(Debug)]
 pub struct Environment {
     pub vars: HashMap<String, VarInfo>,
-    pub parent: Option<Box<Environment>>,
+    pub parent: Option<Rc<RefCell<Environment>>>,
     pub extensions: HashMap<String, ExtensionFn>,
 }
 
@@ -104,60 +101,81 @@ pub type InterpResult<T> = Result<T, InterpErr>;
 
 impl Environment {
     /// Creates a new global environment and loads the standard library into it.
-    pub fn new() -> Self {
-        let mut env = Environment { 
+    pub fn new() -> Rc<RefCell<Environment>> {
+        let env = Environment { 
             vars: HashMap::new(), 
             parent: None,
             extensions: HashMap::new(),
         };
+        let rc_env = Rc::new(RefCell::new(env));
         
         // Load the standard library (global functions and extensions)
-        crate::stdlib::register_stdlib(&mut env);
+        crate::stdlib::register_stdlib(&rc_env);
         
-        env
+        rc_env
     }
 
     /// Creates a child environment with a parent scope. 
-    /// Extensions are passed down to the child scope.
-    pub fn with_parent(parent: Environment) -> Self {
-        Environment { 
+    pub fn with_parent(parent: Rc<RefCell<Environment>>) -> Rc<RefCell<Environment>> {
+        let ext = parent.borrow().extensions.clone();
+        Rc::new(RefCell::new(Environment { 
             vars: HashMap::new(), 
-            parent: Some(Box::new(parent.clone())),
-            extensions: parent.extensions,
-        }
+            parent: Some(parent),
+            extensions: ext,
+        }))
     }
 
     /// Looks up a variable in the current scope, recursively checking parent scopes.
-    pub fn get(&self, name: &str) -> Option<&VarInfo> {
-        if let Some(v) = self.vars.get(name) {
-            Some(v)
-        } else if let Some(p) = &self.parent {
-            p.get(name)
-        } else {
-            None
+    pub fn get(env: &Rc<RefCell<Environment>>, name: &str) -> Option<VarInfo> {
+        let env_ref = env.borrow();
+        if let Some(v) = env_ref.vars.get(name) {
+            return Some(v.clone());
         }
-    }
-
-    /// Looks up a variable for mutation in the current scope, recursively checking parent scopes.
-    pub fn get_mut(&mut self, name: &str) -> Option<&mut VarInfo> {
-        if self.vars.contains_key(name) {
-            return self.vars.get_mut(name);
-        }
-        if let Some(p) = &mut self.parent {
-            return p.get_mut(name);
+        if let Some(p) = &env_ref.parent {
+            return Self::get(p, name);
         }
         None
     }
 
+    /// Finds the environment scope where a variable is defined.
+    fn find_env_with_var(env: &Rc<RefCell<Environment>>, name: &str) -> Option<Rc<RefCell<Environment>>> {
+        if env.borrow().vars.contains_key(name) {
+            return Some(Rc::clone(env));
+        }
+        if let Some(p) = &env.borrow().parent {
+            return Self::find_env_with_var(p, name);
+        }
+        None
+    }
+
+    /// Assigns a new value to an existing variable, respecting const and type checks.
+    fn assign_var(env: &Rc<RefCell<Environment>>, name: &str, value: Value) -> InterpResult<()> {
+        if let Some(var_env) = Self::find_env_with_var(env, name) {
+            let mut env_mut = var_env.borrow_mut();
+            let info = env_mut.vars.get_mut(name).unwrap();
+            if info.is_const {
+                return Err(InterpErr::Err(format!("Cannot change value of constant '{}'", name)));
+            }
+            if let Some(t) = &info.type_name {
+                if !Self::value_matches_type(t, &value) {
+                    return Err(InterpErr::Err(format!("Type mismatch: cannot assign {} to variable of type {}", Self::value_type_name(&value), t)));
+                }
+            }
+            info.value = value;
+            return Ok(());
+        }
+        Err(InterpErr::Err(format!("Variable '{}' is not declared. Use 'var' or 'let'.", name)))
+    }
+
     /// Inserts a variable into the current environment scope.
-    pub fn insert(&mut self, name: String, info: VarInfo) {
-        self.vars.insert(name, info);
+    pub fn insert(env: &Rc<RefCell<Environment>>, name: String, info: VarInfo) {
+        env.borrow_mut().vars.insert(name, info);
     }
 
     /// Main execution function. Takes a list of AST statements and executes them.
-    pub fn run(&mut self, stmts: &[Stmt]) -> Result<(), String> {
+    pub fn run(env: &Rc<RefCell<Environment>>, stmts: &[Stmt]) -> Result<(), String> {
         for stmt in stmts {
-            match self.eval_stmt(stmt) {
+            match Self::eval_stmt(env, stmt) {
                 Ok(_) => {}
                 Err(InterpErr::Err(e)) => return Err(e),
                 Err(InterpErr::Return(_)) => return Err("Return outside of function".to_string()),
@@ -169,73 +187,51 @@ impl Environment {
     }
 
     /// Evaluates a single statement.
-    fn eval_stmt(&mut self, stmt: &Stmt) -> InterpResult<()> {
+    fn eval_stmt(env: &Rc<RefCell<Environment>>, stmt: &Stmt) -> InterpResult<()> {
         match stmt {
             Stmt::VarDecl(name, type_name, expr) => {
                 let value = match expr {
-                    Some(e) => self.eval_expr(e)?,
-                    None => self.get_default_value(type_name)?,
+                    Some(e) => Self::eval_expr(env, e)?,
+                    None => Self::get_default_value(type_name)?,
                 };
                 if let Some(t) = type_name {
-                    if !self.value_matches_type(t, &value) {
-                        return Err(InterpErr::Err(format!("Type mismatch: expected '{}', got {}", t, self.value_type_name(&value))));
+                    if !Self::value_matches_type(t, &value) {
+                        return Err(InterpErr::Err(format!("Type mismatch: expected '{}', got {}", t, Self::value_type_name(&value))));
                     }
                 }
-                self.insert(name.clone(), VarInfo { value, is_const: false, type_name: type_name.clone() });
+                Self::insert(env, name.clone(), VarInfo { value, is_const: false, type_name: type_name.clone() });
             }
 
             Stmt::Let(name, type_name, expr) => {
                 let value = match expr {
-                    Some(e) => self.eval_expr(e)?,
-                    None => self.get_default_value(type_name)?,
+                    Some(e) => Self::eval_expr(env, e)?,
+                    None => Self::get_default_value(type_name)?,
                 };
                 if let Some(t) = type_name {
-                    if !self.value_matches_type(t, &value) {
-                        return Err(InterpErr::Err(format!("Type mismatch: expected '{}', got {}", t, self.value_type_name(&value))));
+                    if !Self::value_matches_type(t, &value) {
+                        return Err(InterpErr::Err(format!("Type mismatch: expected '{}', got {}", t, Self::value_type_name(&value))));
                     }
                 }
-                self.insert(name.clone(), VarInfo { value, is_const: true, type_name: type_name.clone() });
+                Self::insert(env, name.clone(), VarInfo { value, is_const: true, type_name: type_name.clone() });
             }
 
             Stmt::Assign(name, expr) => {
-                let value = self.eval_expr(expr)?;
-                
-                // 1. Get variable info (immutable borrow) to check const flag and get type
-                let var_type = if let Some(info) = self.get(name) {
-                    if info.is_const {
-                        return Err(InterpErr::Err(format!("Cannot change value of constant '{}'", name)));
-                    }
-                    info.type_name.clone()
-                } else {
-                    return Err(InterpErr::Err(format!("Variable '{}' is not declared. Use 'var' or 'let'.", name)));
-                };
-                
-                // 2. Check type matching (we can safely call methods on self here)
-                if let Some(t) = &var_type {
-                    if !self.value_matches_type(t, &value) {
-                        return Err(InterpErr::Err(format!("Type mismatch: cannot assign {} to variable of type {}", self.value_type_name(&value), t)));
-                    }
-                }
-                
-                // 3. Update the value (mutable borrow)
-                if let Some(info) = self.get_mut(name) {
-                    info.value = value;
-                }
+                let value = Self::eval_expr(env, expr)?;
+                Self::assign_var(env, name, value)?;
             }
 
             Stmt::ExprStmt(expr) => {
-                // Evaluate expression and discard the result (used for side effects like print)
-                self.eval_expr(expr)?;
+                Self::eval_expr(env, expr)?;
             }
 
             Stmt::Loop(var_name, start_expr, end_expr, body) => {
-                let start_val = self.eval_expr(start_expr)?;
-                let end_val = self.eval_expr(end_expr)?;
+                let start_val = Self::eval_expr(env, start_expr)?;
+                let end_val = Self::eval_expr(env, end_expr)?;
                 if let (Value::Number(start), Value::Number(end)) = (start_val, end_val) {
                     'outer: for i in start..end {
-                        self.insert(var_name.clone(), VarInfo { value: Value::Number(i), is_const: false, type_name: None });
+                        Self::insert(env, var_name.clone(), VarInfo { value: Value::Number(i), is_const: false, type_name: None });
                         for s in body {
-                            match self.eval_stmt(s) {
+                            match Self::eval_stmt(env, s) {
                                 Ok(_) => {}
                                 Err(InterpErr::Continue) => continue 'outer,
                                 Err(InterpErr::Break) => break 'outer,
@@ -250,23 +246,26 @@ impl Environment {
             }
 
             Stmt::IndexAssign(container_expr, idx_expr, val_expr) => {
-                let val = self.eval_expr(val_expr)?;
-                let idx_val = self.eval_expr(idx_expr)?;
+                let val = Self::eval_expr(env, val_expr)?;
+                let idx_val = Self::eval_expr(env, idx_expr)?;
                 if let Expr::Variable(name) = &**container_expr {
-                    if let Some(info) = self.get_mut(name) {
-                        match (&mut info.value, idx_val) {
-                            (Value::Array(arr), Value::Number(idx)) => {
-                                if idx < 0 || idx as usize >= arr.len() {
-                                    return Err(InterpErr::Err(format!("Array index out of bounds: {}", idx)));
+                    if let Some(var_env) = Self::find_env_with_var(env, name) {
+                        let mut env_mut = var_env.borrow_mut();
+                        if let Some(info) = env_mut.vars.get_mut(name) {
+                            match (&mut info.value, idx_val) {
+                                (Value::Array(arr), Value::Number(idx)) => {
+                                    if idx < 0 || idx as usize >= arr.len() {
+                                        return Err(InterpErr::Err(format!("Array index out of bounds: {}", idx)));
+                                    }
+                                    arr[idx as usize] = val;
+                                    return Ok(());
                                 }
-                                arr[idx as usize] = val;
-                                return Ok(());
+                                (Value::Dict(map), Value::Str(key)) => {
+                                    map.insert(key, val);
+                                    return Ok(());
+                                }
+                                _ => return Err(InterpErr::Err(format!("'{}' is not an array or dict", name).to_string()))
                             }
-                            (Value::Dict(map), Value::Str(key)) => {
-                                map.insert(key, val);
-                                return Ok(());
-                            }
-                            _ => return Err(InterpErr::Err(format!("'{}' is not an array or dict", name).to_string()))
                         }
                     }
                     return Err(InterpErr::Err(format!("Variable '{}' not defined", name).to_string()));
@@ -275,40 +274,37 @@ impl Environment {
             }
 
             Stmt::FuncDecl(name, params, body) => {
-                let func_val = Value::Function(params.clone(), body.clone());
-                self.insert(name.clone(), VarInfo { value: func_val, is_const: true, type_name: None });
+                // Capture the current environment by cloning the Rc (cheap, shared ownership)
+                let func_val = Value::Function(params.clone(), body.clone(), Rc::clone(env));
+                Self::insert(env, name.clone(), VarInfo { value: func_val, is_const: true, type_name: None });
             }
 
             Stmt::Return(expr) => {
                 let val = match expr {
-                    Some(e) => self.eval_expr(e)?,
+                    Some(e) => Self::eval_expr(env, e)?,
                     None => Value::Null,
                 };
                 return Err(InterpErr::Return(val));
             }
 
-            // 'until' działa jak break, ale tylko jeśli warunek jest prawdziwy
             Stmt::Until(condition) => {
-                let cond_val = self.eval_expr(condition)?;
-                if self.is_truthy(&cond_val) {
+                let cond_val = Self::eval_expr(env, condition)?;
+                if Self::is_truthy(&cond_val) {
                     return Err(InterpErr::Break);
                 }
             }
 
-            // Nieskończona pętla: loop { ... }
             Stmt::LoopBlock(body) => {
                 loop {
                     let mut should_break = false;
                     for s in body {
-                        match self.eval_stmt(s) {
+                        match Self::eval_stmt(env, s) {
                             Ok(_) => {}
-                            // Until i Break zwracają ten sam błąd
                             Err(InterpErr::Break) => {
                                 should_break = true;
                                 break;
                             }
                             Err(InterpErr::Continue) => {
-                                // Continue przerywa obecną iterację pętli for
                                 break; 
                             }
                             Err(InterpErr::Return(v)) => return Err(InterpErr::Return(v)),
@@ -321,14 +317,13 @@ impl Environment {
                 }
             }
 
-            // Pętla po tablicy: loop element in array { ... }
             Stmt::LoopIn(var_name, iterable_expr, body) => {
-                let iterable_val = self.eval_expr(iterable_expr)?;
+                let iterable_val = Self::eval_expr(env, iterable_expr)?;
                 if let Value::Array(arr) = iterable_val {
                     'outer: for element in arr {
-                        self.insert(var_name.clone(), VarInfo { value: element, is_const: false, type_name: None });
+                        Self::insert(env, var_name.clone(), VarInfo { value: element, is_const: false, type_name: None });
                         for s in body {
-                            match self.eval_stmt(s) {
+                            match Self::eval_stmt(env, s) {
                                 Ok(_) => {}
                                 Err(InterpErr::Continue) => continue 'outer,
                                 Err(InterpErr::Break) => break 'outer,
@@ -343,56 +338,51 @@ impl Environment {
             }
 
             Stmt::Break => return Err(InterpErr::Break),
-
             Stmt::Continue => return Err(InterpErr::Continue),
 
             Stmt::Use(module_name) => {
-                crate::modules::load_module(&mut self.extensions, module_name)?;
+                crate::modules::load_module(&mut env.borrow_mut().extensions, module_name)?;
             }
         }
         Ok(())
     }
 
     /// Evaluates an expression and returns its computed Value.
-    fn eval_expr(&mut self, expr: &Expr) -> InterpResult<Value> {
+    fn eval_expr(env: &Rc<RefCell<Environment>>, expr: &Expr) -> InterpResult<Value> {
         match expr {
             Expr::Number(n) => Ok(Value::Number(*n)),
-
             Expr::Decimal(n) => Ok(Value::Decimal(*n)),
-
             Expr::Str(s) => Ok(Value::Str(s.clone())),
-
             Expr::Bool(b) => Ok(Value::Bool(*b)),
             
             Expr::Variable(name) => {
-                self.get(name).map(|info| info.value.clone())
+                Self::get(env, name).map(|info| info.value)
                     .ok_or_else(|| InterpErr::Err(format!("Variable '{}' is not defined", name)))
             }
 
+            Expr::Lambda(params, body) => {
+                // Closures capture the Rc to the current environment
+                Ok(Value::Function(params.clone(), body.clone(), Rc::clone(env)))
+            }
+
             Expr::Binary(left, op, right) => {
-                // Short-circuit evaluation for logical operators
                 if let BinOp::And = op {
-                    let left_val = self.eval_expr(left)?;
-                    if !self.is_truthy(&left_val) {
-                        return Ok(Value::Bool(false));
-                    }
-                    let right_val = self.eval_expr(right)?;
-                    return Ok(Value::Bool(self.is_truthy(&right_val)));
+                    let left_val = Self::eval_expr(env, left)?;
+                    if !Self::is_truthy(&left_val) { return Ok(Value::Bool(false)); }
+                    let right_val = Self::eval_expr(env, right)?;
+                    return Ok(Value::Bool(Self::is_truthy(&right_val)));
                 }
                 
                 if let BinOp::Or = op {
-                    let left_val = self.eval_expr(left)?;
-                    if self.is_truthy(&left_val) {
-                        return Ok(Value::Bool(true));
-                    }
-                    let right_val = self.eval_expr(right)?;
-                    return Ok(Value::Bool(self.is_truthy(&right_val)));
+                    let left_val = Self::eval_expr(env, left)?;
+                    if Self::is_truthy(&left_val) { return Ok(Value::Bool(true)); }
+                    let right_val = Self::eval_expr(env, right)?;
+                    return Ok(Value::Bool(Self::is_truthy(&right_val)));
                 }
 
-                let left_val = self.eval_expr(left)?;
-                let right_val = self.eval_expr(right)?;
+                let left_val = Self::eval_expr(env, left)?;
+                let right_val = Self::eval_expr(env, right)?;
 
-                // String concatenation: if either side is a String, concatenate them
                 if let BinOp::Add = op {
                     if let (Value::Str(_), _) | (_, Value::Str(_)) = (&left_val, &right_val) {
                         let l_str = left_val.to_string();
@@ -401,7 +391,6 @@ impl Environment {
                     }
                 }
 
-                // Type promotion: if either side is Decimal, promote both to f64
                 let (l_val, r_val) = match (left_val, right_val) {
                     (Value::Number(l), Value::Decimal(r)) => (Value::Decimal(l as f64), Value::Decimal(r)),
                     (Value::Decimal(l), Value::Number(r)) => (Value::Decimal(l), Value::Decimal(r as f64)),
@@ -409,22 +398,17 @@ impl Environment {
                 };
 
                 match (l_val, r_val) {
-                    // Both are integers
                     (Value::Number(l), Value::Number(r)) => {
                         match op {
                             BinOp::Add => Ok(Value::Number(l + r)),
                             BinOp::Subtract => Ok(Value::Number(l - r)),
                             BinOp::Multiply => Ok(Value::Number(l * r)),
                             BinOp::Divide => {
-                                if r == 0 {
-                                    return Err(InterpErr::Err("Runtime error: Division by zero!".to_string()));
-                                }
-                                Ok(Value::Number(l / r)) // Integer division!
+                                if r == 0 { return Err(InterpErr::Err("Runtime error: Division by zero!".to_string())); }
+                                Ok(Value::Number(l / r))
                             }
                             BinOp::Modulo => {
-                                if r == 0 {
-                                    return Err(InterpErr::Err("Runtime error: Modulo by zero!".to_string()));
-                                }
+                                if r == 0 { return Err(InterpErr::Err("Runtime error: Modulo by zero!".to_string())); }
                                 Ok(Value::Number(l % r))
                             }
                             BinOp::Equals => Ok(Value::Bool(l == r)),
@@ -436,22 +420,17 @@ impl Environment {
                             BinOp::And | BinOp::Or => Err(InterpErr::Err("Logical operators handled earlier".to_string())),
                         }
                     }
-                    // Both are decimals (or promoted to decimals)
                     (Value::Decimal(l), Value::Decimal(r)) => {
                         match op {
                             BinOp::Add => Ok(Value::Decimal(l + r)),
                             BinOp::Subtract => Ok(Value::Decimal(l - r)),
                             BinOp::Multiply => Ok(Value::Decimal(l * r)),
                             BinOp::Divide => {
-                                if r == 0.0 {
-                                    return Err(InterpErr::Err("Runtime error: Division by zero!".to_string()));
-                                }
+                                if r == 0.0 { return Err(InterpErr::Err("Runtime error: Division by zero!".to_string())); }
                                 Ok(Value::Decimal(l / r))
                             }
                             BinOp::Modulo => {
-                                if r == 0.0 {
-                                    return Err(InterpErr::Err("Runtime error: Modulo by zero!".to_string()));
-                                }
+                                if r == 0.0 { return Err(InterpErr::Err("Runtime error: Modulo by zero!".to_string())); }
                                 Ok(Value::Decimal(l % r))
                             }
                             BinOp::Equals => Ok(Value::Bool(l == r)),
@@ -476,49 +455,37 @@ impl Environment {
             }
 
             Expr::Unary(op, right) => {
-                let right_val = self.eval_expr(right)?;
+                let right_val = Self::eval_expr(env, right)?;
                 match op {
-                    UnOp::Negate => {
-                        match right_val {
-                            Value::Number(n) => Ok(Value::Number(-n)),
-                            Value::Decimal(n) => Ok(Value::Decimal(-n)),
-                            _ => Err(InterpErr::Err("Unary '-' can only be applied to Number or Decimal".to_string())),
-                        }
-                    }
-                    UnOp::Not => {
-                        // Use truthiness to evaluate 'not'
-                        Ok(Value::Bool(!self.is_truthy(&right_val)))
-                    }
+                    UnOp::Negate => match right_val {
+                        Value::Number(n) => Ok(Value::Number(-n)),
+                        Value::Decimal(n) => Ok(Value::Decimal(-n)),
+                        _ => Err(InterpErr::Err("Unary '-' can only be applied to Number or Decimal".to_string())),
+                    },
+                    UnOp::Not => Ok(Value::Bool(!Self::is_truthy(&right_val))),
                 }
             }
 
             Expr::Array(elements) => {
                 let mut vals = Vec::new();
-                for e in elements {
-                    vals.push(self.eval_expr(e)?);
-                }
+                for e in elements { vals.push(Self::eval_expr(env, e)?); }
                 Ok(Value::Array(vals))
             }
 
             Expr::Dict(pairs) => {
                 let mut map = HashMap::new();
                 for (k_expr, v_expr) in pairs {
-                    let k_val = self.eval_expr(k_expr)?;
-                    let v_val = self.eval_expr(v_expr)?;
-                    
-                    if let Value::Str(key) = k_val {
-                        map.insert(key, v_val);
-                    } else {
-                        return Err(InterpErr::Err("Dictionary keys must evaluate to String".to_string()));
-                    }
+                    let k_val = Self::eval_expr(env, k_expr)?;
+                    let v_val = Self::eval_expr(env, v_expr)?;
+                    if let Value::Str(key) = k_val { map.insert(key, v_val); } 
+                    else { return Err(InterpErr::Err("Dictionary keys must evaluate to String".to_string())); }
                 }
                 Ok(Value::Dict(map))
             }
 
             Expr::IndexGet(container_expr, idx_expr) => {
-                let container_val = self.eval_expr(container_expr)?;
-                let idx_val = self.eval_expr(idx_expr)?;
-                
+                let container_val = Self::eval_expr(env, container_expr)?;
+                let idx_val = Self::eval_expr(env, idx_expr)?;
                 match (container_val, idx_val) {
                     (Value::Array(arr), Value::Number(idx)) => {
                         if idx < 0 || idx as usize >= arr.len() {
@@ -526,75 +493,61 @@ impl Environment {
                         }
                         Ok(arr[idx as usize].clone())
                     }
-                    (Value::Dict(map), Value::Str(key)) => {
-                        // Changed: Return Null if key is missing, instead of throwing an error.
-                        // This enables the use of ?? for fallback values.
-                        Ok(map.get(&key).cloned().unwrap_or(Value::Null))
-                    }
+                    (Value::Dict(map), Value::Str(key)) => Ok(map.get(&key).cloned().unwrap_or(Value::Null)),
                     _ => Err(InterpErr::Err("Can only index arrays with numbers or dicts with strings".to_string()))
                 }
             }
 
             Expr::Call(callee, args) => {
                 let mut arg_vals = Vec::new();
-                for arg in args {
-                    arg_vals.push(self.eval_expr(arg)?);
-                }
+                for arg in args { arg_vals.push(Self::eval_expr(env, arg)?); }
 
-                if let Expr::Variable(name) = &**callee {
-                    let func_val = self.get(name).map(|info| info.value.clone())
-                        .ok_or_else(|| InterpErr::Err(format!("Function '{}' is not defined", name)))?;
-                    
-                    if let Value::Function(params, body) = func_val {
-                        if params.len() != arg_vals.len() {
-                            return Err(InterpErr::Err(format!("Expected {} arguments, got {}", params.len(), arg_vals.len())));
-                        }
-                        
-                        let mut local_env = Environment::with_parent(self.clone());
-                        
-                        for (i, param_name) in params.iter().enumerate() {
-                            local_env.insert(param_name.clone(), VarInfo { value: arg_vals[i].clone(), is_const: false, type_name: None });
-                        }
-
-                        for stmt in &body {
-                            match local_env.eval_stmt(stmt) {
-                                Ok(_) => {}
-                                Err(InterpErr::Return(v)) => return Ok(v),
-                                Err(InterpErr::Err(e)) => return Err(InterpErr::Err(e)),
-                                // Break/Continue inside a function but outside a loop is an error
-                                Err(InterpErr::Break) => return Err(InterpErr::Err("Break outside of loop".to_string())),
-                                Err(InterpErr::Continue) => return Err(InterpErr::Err("Continue outside of loop".to_string())),
-                            }
-                        }
-                        
-                        return Ok(Value::Null);
-                    } else if let Value::Builtin(func) = func_val {
-                        // Simply call the Rust function pointer with the arguments
-                        return func(arg_vals);
-                    } else {
-                        return Err(InterpErr::Err(format!("'{}' is not a function", name)));
+                let callee_val = Self::eval_expr(env, callee)?;
+                
+                if let Value::Function(params, body, closure_env) = callee_val {
+                    if params.len() != arg_vals.len() {
+                        return Err(InterpErr::Err(format!("Expected {} arguments, got {}", params.len(), arg_vals.len())));
                     }
+                    
+                    // Create local scope sharing the closure's environment
+                    let local_env = Environment::with_parent(closure_env);
+                    
+                    for (i, param_name) in params.iter().enumerate() {
+                        Self::insert(&local_env, param_name.clone(), VarInfo { value: arg_vals[i].clone(), is_const: false, type_name: None });
+                    }
+
+                    for stmt in &body {
+                        match Self::eval_stmt(&local_env, stmt) {
+                            Ok(_) => {}
+                            Err(InterpErr::Return(v)) => return Ok(v),
+                            Err(InterpErr::Err(e)) => return Err(InterpErr::Err(e)),
+                            Err(InterpErr::Break) => return Err(InterpErr::Err("Break outside of loop".to_string())),
+                            Err(InterpErr::Continue) => return Err(InterpErr::Err("Continue outside of loop".to_string())),
+                        }
+                    }
+                    return Ok(Value::Null);
+                } else if let Value::Builtin(func) = callee_val {
+                    return func(arg_vals);
                 } else {
-                    return Err(InterpErr::Err("Can only call functions by name".to_string()));
+                    return Err(InterpErr::Err("Value is not callable".to_string()));
                 }
             }
 
             Expr::MethodCall(obj_expr, method_name, args) => {
                 let mut arg_vals = Vec::new();
-                for arg in args {
-                    arg_vals.push(self.eval_expr(arg)?);
-                }
+                for arg in args { arg_vals.push(Self::eval_expr(env, arg)?); }
 
-                let obj_val = self.eval_expr(obj_expr)?;
+                let obj_val = Self::eval_expr(env, obj_expr)?;
 
-                // Exception: mutating methods (like 'push' on an array) must be handled here, 
-                // because they operate on a mutable reference to the variable in the environment.
                 if method_name == "push" {
                     if let Expr::Variable(name) = &**obj_expr {
-                        if let Some(info) = self.get_mut(name) {
-                            if let Value::Array(arr_mut) = &mut info.value {
-                                arr_mut.push(arg_vals[0].clone());
-                                return Ok(Value::Null);
+                        if let Some(var_env) = Self::find_env_with_var(env, name) {
+                            let mut env_mut = var_env.borrow_mut();
+                            if let Some(info) = env_mut.vars.get_mut(name) {
+                                if let Value::Array(arr_mut) = &mut info.value {
+                                    arr_mut.push(arg_vals[0].clone());
+                                    return Ok(Value::Null);
+                                }
                             }
                         }
                         return Err(InterpErr::Err("Can only push to an array variable".to_string()));
@@ -602,13 +555,11 @@ impl Environment {
                     return Err(InterpErr::Err("Can only call push() on a variable".to_string()));
                 }
 
-                // The rest are non-mutating methods (pure functions).
-                // We look them up in the registered extensions!
-                if let Some(ext_fn) = self.extensions.get(method_name) {
+                if let Some(ext_fn) = env.borrow().extensions.get(method_name) {
+                    let ext_fn = *ext_fn;
                     return ext_fn(obj_val, arg_vals);
                 }
 
-                // If the method was not found
                 match &obj_val {
                     Value::Array(_) => return Err(InterpErr::Err(format!("Method '{}' not supported on Array", method_name))),
                     Value::Str(_) => return Err(InterpErr::Err(format!("Method '{}' not supported on String", method_name))),
@@ -616,78 +567,57 @@ impl Environment {
                 }
             }
 
-            // Executes the run_body. If a runtime error (Err) occurs, it catches it,
-            // binds the error message to the err_var (if provided) in the current scope,
-            // and executes the catch_body. Other control flow errors (Return, Break, Continue) propagate up.
             Expr::ExecuteCatch(run_body, err_var, catch_body) => {
-                match self.eval_block_as_expr(run_body) {
+                match Self::eval_block_as_expr(env, run_body) {
                     Ok(val) => return Ok(val),
                     Err(InterpErr::Err(msg)) => {
                         if let Some(var_name) = err_var {
-                            self.insert(var_name.clone(), VarInfo { 
+                            Self::insert(env, var_name.clone(), VarInfo { 
                                 value: Value::Str(msg), 
                                 is_const: true,
                                 type_name: Some("String".to_string())
                             });
                         }
-                        return self.eval_block_as_expr(catch_body);
+                        return Self::eval_block_as_expr(env, catch_body);
                     }
-                    Err(other_err) => {
-                        return Err(other_err);
-                    }
+                    Err(other_err) => return Err(other_err),
                 }
             }
 
-            // Evaluates the condition. If truthy, evaluates and returns the if_body.
-            // Otherwise, evaluates and returns the else_body.
-            // Works in the current scope to allow variable reassignment inside the blocks.
             Expr::If(condition, if_body, else_body) => {
-                let cond_value = self.eval_expr(condition)?;
-                if self.is_truthy(&cond_value) {
-                    return self.eval_block_as_expr(if_body);
+                let cond_value = Self::eval_expr(env, condition)?;
+                if Self::is_truthy(&cond_value) {
+                    return Self::eval_block_as_expr(env, if_body);
                 } else {
-                    return self.eval_block_as_expr(else_body);
+                    return Self::eval_block_as_expr(env, else_body);
                 }
             }
 
-            // Evaluates left expression. If it is Null, evaluates and returns right expression.
             Expr::NullCoalesce(left, right) => {
-                let left_val = self.eval_expr(left)?;
-                if let Value::Null = left_val {
-                    self.eval_expr(right)
-                } else {
-                    Ok(left_val)
-                }
+                let left_val = Self::eval_expr(env, left)?;
+                if let Value::Null = left_val { Self::eval_expr(env, right) } else { Ok(left_val) }
             }
 
             Expr::Match(target_expr, arms) => {
-                let target_val = self.eval_expr(target_expr)?;
-                
+                let target_val = Self::eval_expr(env, target_expr)?;
                 for (pattern, body) in arms {
                     let is_match = if let Some(p_expr) = pattern {
-                        // Evaluate the pattern expression and compare it with the target value
-                        let p_val = self.eval_expr(p_expr)?;
+                        let p_val = Self::eval_expr(env, p_expr)?;
                         target_val == p_val
                     } else {
-                        // None represents the wildcard '_', which matches everything
                         true
                     };
-                    
                     if is_match {
-                        // Use eval_block_as_expr to return the value from the arm's body
-                        return self.eval_block_as_expr(body);
+                        return Self::eval_block_as_expr(env, body);
                     }
                 }
-                
-                // If no arm matches, throw an error
                 return Err(InterpErr::Err("Match expression exhausted with no matching arm".to_string()));
             }
         }
     }
 
-    /// Helper to get default values for types (e.g., when declaring a variable without an initial value).
-    fn get_default_value(&self, type_name: &Option<String>) -> InterpResult<Value> {
-        match type_name {
+    fn get_default_value(_type_name: &Option<String>) -> InterpResult<Value> {
+        match _type_name {
             Some(t) => match t.as_str() {
                 "Number" => Ok(Value::Number(0)),
                 "Decimal" => Ok(Value::Decimal(0.0)),
@@ -702,8 +632,7 @@ impl Environment {
         }
     }
 
-    /// Checks if a given value matches the expected type name.
-    fn value_matches_type(&self, type_name: &str, value: &Value) -> bool {
+    fn value_matches_type(type_name: &str, value: &Value) -> bool {
         match type_name {
             "Number" => matches!(value, Value::Number(_)),
             "Decimal" => matches!(value, Value::Decimal(_)),
@@ -712,12 +641,11 @@ impl Environment {
             "Array" => matches!(value, Value::Array(_)),
             "Dict" => matches!(value, Value::Dict(_)),
             "Null" => matches!(value, Value::Null),
-            _ => true, // Unknown types are allowed (for future extensions)
+            _ => true,
         }
     }
 
-    /// Returns the type name of a Value as a string (for error messages).
-    fn value_type_name(&self, value: &Value) -> &'static str {
+    fn value_type_name(value: &Value) -> &'static str {
         match value {
             Value::Number(_) => "Number",
             Value::Decimal(_) => "Decimal",
@@ -725,13 +653,12 @@ impl Environment {
             Value::Bool(_) => "Bool",
             Value::Array(_) => "Array",
             Value::Dict(_) => "Dict",
-            Value::Function(_, _) | Value::Builtin(_) => "Function",
+            Value::Function(_, _, _) | Value::Builtin(_) => "Function",
             Value::Null => "Null",
         }
     }
 
-    /// Helper to evaluate the truthiness of any value.
-    fn is_truthy(&self, val: &Value) -> bool {
+    fn is_truthy(val: &Value) -> bool {
         match val {
             Value::Bool(b) => *b,
             Value::Number(n) => *n != 0,
@@ -739,25 +666,17 @@ impl Environment {
             Value::Str(s) => !s.is_empty(),
             Value::Array(arr) => !arr.is_empty(),
             Value::Null => false,
-            Value::Function(_, _) | Value::Builtin(_) => true,
+            Value::Function(_, _, _) | Value::Builtin(_) => true,
             Value::Dict(hash_map) => !hash_map.is_empty(),
         }
     }
 
-    /// Helper to evaluate a block of statements as an expression.
-    /// Returns the value of the last expression statement in the block.
-    /// If a Return statement is encountered, it returns Err(InterpErr::Return(v)), 
-    /// which correctly propagates up via the `?` operator so the function exits properly.
-    fn eval_block_as_expr(&mut self, stmts: &[Stmt]) -> InterpResult<Value> {
+    fn eval_block_as_expr(env: &Rc<RefCell<Environment>>, stmts: &[Stmt]) -> InterpResult<Value> {
         let mut last_val = Value::Null;
         for stmt in stmts {
             match stmt {
-                // If it's an expression, save its value
-                Stmt::ExprStmt(expr) => last_val = self.eval_expr(expr)?,
-                // Execute other statements (including Return, VarDecl, etc.) normally.
-                // If it's a Return, it will return Err(InterpErr::Return(v)), which will
-                // propagate up via the `?` operator!
-                _ => self.eval_stmt(stmt)?,
+                Stmt::ExprStmt(expr) => last_val = Self::eval_expr(env, expr)?,
+                _ => Self::eval_stmt(env, stmt)?,
             }
         }
         Ok(last_val)

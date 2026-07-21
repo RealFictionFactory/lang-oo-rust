@@ -1,31 +1,34 @@
 // src/stdlib.rs
 
+use std::cell::RefCell;
+use std::rc::Rc;
 use crate::interpreter::{Environment, InterpErr, InterpResult, Value, VarInfo};
 use std::io::{self, Write};
 
 /// Registers the standard library functions and extensions into the given environment.
 /// This includes global functions (like print and input) and extension methods (like asNumber, upper).
-pub fn register_stdlib(env: &mut Environment) {
+pub fn register_stdlib(env: &Rc<RefCell<Environment>>) {
     // Global functions
-    env.insert("print".to_string(), VarInfo { 
+    Environment::insert(env, "print".to_string(), VarInfo { 
         value: Value::Builtin(builtin_print), 
         is_const: true,
         type_name: None
     });
 
-    env.insert("input".to_string(), VarInfo { 
+    Environment::insert(env, "input".to_string(), VarInfo { 
         value: Value::Builtin(builtin_input), 
         is_const: true,
         type_name: None
     });
 
     // Extension methods
-    env.extensions.insert("asNumber".to_string(), ext_as_number);
-    env.extensions.insert("asDecimal".to_string(), ext_as_decimal);
-    env.extensions.insert("asBoolean".to_string(), ext_as_boolean);
-    env.extensions.insert("upper".to_string(), ext_upper);
-    env.extensions.insert("lower".to_string(), ext_lower);
-    env.extensions.insert("length".to_string(), ext_length);
+    let mut env_mut = env.borrow_mut();
+    env_mut.extensions.insert("asNumber".to_string(), ext_as_number);
+    env_mut.extensions.insert("asDecimal".to_string(), ext_as_decimal);
+    env_mut.extensions.insert("asBoolean".to_string(), ext_as_boolean);
+    env_mut.extensions.insert("upper".to_string(), ext_upper);
+    env_mut.extensions.insert("lower".to_string(), ext_lower);
+    env_mut.extensions.insert("length".to_string(), ext_length);
 }
 
 /// print(...args) -> prints values separated by a space, returns Null.

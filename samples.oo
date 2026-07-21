@@ -139,3 +139,42 @@ var assign_err = execute {
     "Caught assignment mismatch: {e}"
 }
 print(assign_err)
+
+// 18. Test Pattern Matching (match)
+print("\n--- Pattern Matching ---")
+var match_val = 2
+var match_result = match match_val {
+    0 -> "zero"
+    1 -> "one"
+    2 -> {
+        var prefix = "The number is: "
+        prefix + "two"
+    }
+    _ -> "many"
+}
+print("Match result: ", match_result)
+
+// 19. Test Safe Dictionary Access and Nullish Coalescing (??)
+print("\n--- Safe Access & ?? ---")
+var user = {"name": "Alice", "age": 25}
+var user_role = user["role"] ?? "guest"
+var user_name = user["name"] ?? "Unknown"
+print("User: ", user_name, ", Role: ", user_role)
+
+// 20. Test Lambdas (Anonymous Functions)
+print("\n--- Lambdas ---")
+var double = fun(x) { return x * 2 }
+print("Double of 15 is: ", double(15))
+
+// 21. Test Closures (Capturing State)
+print("\n--- Closures ---")
+fun make_counter() {
+    var count = 0
+    return fun() {
+        count = count + 1
+        return count
+    }
+}
+
+var counter1 = make_counter()
+print("Counter calls: ", counter1(), counter1(), counter1())

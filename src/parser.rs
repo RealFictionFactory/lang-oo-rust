@@ -62,7 +62,7 @@ impl Parser {
             
             Some(Token::Loop) => self.parse_loop(),
             
-            Some(Token::Func) => self.parse_func_decl(),
+            Some(Token::Fun) => self.parse_func_decl(),
             
             Some(Token::Return) => self.parse_return(),
             
@@ -482,6 +482,39 @@ impl Parser {
                 
                 self.next(); // consume '}'
                 return Ok(Expr::Match(Box::new(condition), arms));
+            }
+
+            Some(Token::Fun) => {
+                // Parse lambda: fun(params) { body }
+                if self.next() != Some(&Token::LParen) {
+                    return Err("Expected '(' after 'fun'".to_string());
+                }
+
+                let mut params = Vec::new();
+                if self.peek() != Some(&Token::RParen) {
+                    loop {
+                        if let Some(Token::Ident(param)) = self.next().cloned() {
+                            params.push(param);
+                        } else {
+                            return Err("Expected parameter name".to_string());
+                        }
+                        match self.next() {
+                            Some(Token::Comma) => continue,
+                            Some(Token::RParen) => break,
+                            _ => return Err("Expected ',' or ')' in parameters".to_string()),
+                        }
+                    }
+                } else {
+                    self.next(); // consume ')'
+                }
+
+                self.skip_newlines();
+                if self.next() != Some(&Token::LBrace) {
+                    return Err("Expected '{' to start function body".to_string());
+                }
+
+                let body = self.parse_block()?;
+                return Ok(Expr::Lambda(params, body));
             }
 
             Some(Token::If) => {

@@ -25,7 +25,6 @@ fn test_lexer_comments() {
     let mut lex = Lexer::new("var x = 5 // this is a comment\n");
     let tokens = lex.tokenize();
     
-    // We expect that after the number 5, a newline appears immediately, and the comment is gone
     assert_eq!(tokens[3], Token::Number(5));
     assert_eq!(tokens[4], Token::NewLine);
 }
@@ -37,11 +36,9 @@ fn test_parser_var_decl() {
     let tokens = lex.tokenize();
     
     let mut parser = Parser::new(tokens);
-    let ast = parser.parse_program().unwrap(); // unwrap() is ok in tests; if it throws an error, the test fails
+    let ast = parser.parse_program().unwrap();
 
-    assert_eq!(ast.len(), 1); // There should be one statement
-    // We can also check if it's the correct node (requires importing Stmt from ast)
-    // assert_eq!(ast[0], crate::ast::Stmt::VarDecl("y".to_string(), crate::ast::Expr::Number(20)));
+    assert_eq!(ast.len(), 1);
 }
 
 // Test 4: Check if the interpreter does not throw errors on simple code
@@ -55,10 +52,10 @@ fn test_interpreter_runs_without_error() {
     let mut parser = Parser::new(tokens);
     let ast = parser.parse_program().unwrap();
     
-    let mut env = Environment::new();
-    let result = env.run(&ast);
+    let env = Environment::new();
+    let result = Environment::run(&env, &ast);
     
-    assert!(result.is_ok()); // Check if execution ended successfully
+    assert!(result.is_ok());
 }
 
 // Test 5: Check syntax errors (e.g., missing '=' and 'is' after variable name)
@@ -70,7 +67,7 @@ fn test_parser_syntax_error() {
     let mut parser = Parser::new(tokens);
     let result = parser.parse_program();
     
-    assert!(result.is_err()); // Expect the parser to return an error (Err)
+    assert!(result.is_err());
     assert_eq!(result.unwrap_err(), "Variable declaration must have a type 'is Type' or an initial value '='");
 }
 
@@ -86,7 +83,6 @@ fn test_parser_if_else_ast() {
     
     assert_eq!(ast.len(), 1);
     match &ast[0] {
-        // CHANGE: Now 'if' is wrapped in ExprStmt
         Stmt::ExprStmt(Expr::If(_, if_body, else_body)) => {
             assert_eq!(if_body.len(), 1, "The 'if' block should have 1 statement");
             assert_eq!(else_body.len(), 1, "The 'else' block should have 1 statement");
@@ -96,11 +92,8 @@ fn test_parser_if_else_ast() {
 }
 
 // Test 7: Check the correct execution of 'if/else' by the interpreter
-// Note that the code in the test does not have 'print', we just check if 
-// executing code that enters the 'else' block does not cause errors.
 #[test]
 fn test_interpreter_if_else_execution() {
-    // x is 10, so the condition x == 5 is false. It should enter 'else'.
     let code = "var x = 10\nif x == 5 { var a = 1 } else { var b = 2 }";
     
     let mut lex = Lexer::new(code);
@@ -109,8 +102,8 @@ fn test_interpreter_if_else_execution() {
     let mut parser = Parser::new(tokens);
     let ast = parser.parse_program().unwrap();
     
-    let mut env = Environment::new();
-    let result = env.run(&ast);
+    let env = Environment::new();
+    let result = Environment::run(&env, &ast);
     
     assert!(result.is_ok(), "Interpreter should execute the code without errors");
 }
@@ -127,7 +120,6 @@ fn test_parser_for_loop_ast() {
     
     assert_eq!(ast.len(), 1);
     match &ast[0] {
-        // Pattern: Loop(variable_name, start, end, code_block)
         Stmt::Loop(var_name, _, _, body) => {
             assert_eq!(var_name, "i", "The iteration variable should be named 'i'");
             assert_eq!(body.len(), 1, "The loop block should have 1 statement");
@@ -139,7 +131,6 @@ fn test_parser_for_loop_ast() {
 // Test 9: Check if the interpreter uses truthiness (0 is false, 5 is true)
 #[test]
 fn test_interpreter_if_truthiness() {
-    // 0 is false, so it should enter the else block
     let code = "var result = \"\"\nif 0 { result = \"fail\" } else { result = \"pass\" }";
     
     let mut lex = Lexer::new(code);
@@ -148,18 +139,16 @@ fn test_interpreter_if_truthiness() {
     let mut parser = Parser::new(tokens);
     let ast = parser.parse_program().unwrap();
     
-    let mut env = Environment::new();
-    let result = env.run(&ast);
+    let env = Environment::new();
+    let result = Environment::run(&env, &ast);
     
     assert!(result.is_ok(), "Interpreter should not error on numeric condition due to truthiness");
-    assert_eq!(env.get("result").unwrap().value, crate::interpreter::Value::Str("pass".to_string()));
+    assert_eq!(Environment::get(&env, "result").unwrap().value, crate::interpreter::Value::Str("pass".to_string()));
 }
 
 // Test 10: Check the execution of a 'for' loop using the iteration variable
 #[test]
 fn test_interpreter_for_loop_runs() {
-    // A loop that simply performs a mathematical operation. 
-    // We don't print to the screen to avoid cluttering the console during tests.
     let code = "loop i from 1..3 { var x = i + 10 }";
     
     let mut lex = Lexer::new(code);
@@ -168,8 +157,8 @@ fn test_interpreter_for_loop_runs() {
     let mut parser = Parser::new(tokens);
     let ast = parser.parse_program().unwrap();
     
-    let mut env = Environment::new();
-    let result = env.run(&ast);
+    let env = Environment::new();
+    let result = Environment::run(&env, &ast);
     
     assert!(result.is_ok(), "The loop should execute without errors");
 }
@@ -185,13 +174,12 @@ fn test_interpreter_variable_assignment() {
     let mut parser = Parser::new(tokens);
     let ast = parser.parse_program().unwrap();
     
-    let mut env = Environment::new();
-    let result = env.run(&ast);
+    let env = Environment::new();
+    let result = Environment::run(&env, &ast);
     
     assert!(result.is_ok(), "Assignment to an existing variable should work");
     
-    // We go into VarInfo and check the .value field
-    let var_info = env.get("x").expect("Variable x should exist");
+    let var_info = Environment::get(&env, "x").expect("Variable x should exist");
     assert_eq!(var_info.value, crate::interpreter::Value::Number(20));
     assert!(!var_info.is_const, "x should not be a constant");
 }
@@ -207,8 +195,8 @@ fn test_interpreter_assign_undeclared_fails() {
     let mut parser = Parser::new(tokens);
     let ast = parser.parse_program().unwrap();
     
-    let mut env = Environment::new();
-    let result = env.run(&ast);
+    let env = Environment::new();
+    let result = Environment::run(&env, &ast);
     
     assert!(result.is_err(), "An error should occur when assigning to an undeclared variable");
     assert_eq!(
@@ -228,8 +216,8 @@ fn test_interpreter_const_reassignment_fails() {
     let mut parser = Parser::new(tokens);
     let ast = parser.parse_program().unwrap();
     
-    let mut env = Environment::new();
-    let result = env.run(&ast);
+    let env = Environment::new();
+    let result = Environment::run(&env, &ast);
     
     assert!(result.is_err(), "An error should occur when changing a constant");
     assert_eq!(
@@ -248,14 +236,12 @@ fn test_parser_let_decl() {
     let ast = parser.parse_program().unwrap();
 
     assert_eq!(ast.len(), 1);
-    // Check if it's a Let node
     assert!(matches!(ast[0], Stmt::Let(..)), "Expected a Stmt::Let node");
 }
 
 // Test 15: Check operator precedence (multiplication before addition)
 #[test]
 fn test_interpreter_math_precedence() {
-    // 2 + 3 * 4 should equal 14, not 20
     let code = "var x = 2 + 3 * 4";
     
     let mut lex = Lexer::new(code);
@@ -264,10 +250,10 @@ fn test_interpreter_math_precedence() {
     let mut parser = Parser::new(tokens);
     let ast = parser.parse_program().unwrap();
     
-    let mut env = Environment::new();
-    env.run(&ast).unwrap();
+    let env = Environment::new();
+    Environment::run(&env, &ast).unwrap();
     
-    let var_info = env.get("x").expect("Variable x should exist");
+    let var_info = Environment::get(&env, "x").expect("Variable x should exist");
     assert_eq!(var_info.value, crate::interpreter::Value::Number(14));
 }
 
@@ -282,8 +268,8 @@ fn test_interpreter_division_by_zero() {
     let mut parser = Parser::new(tokens);
     let ast = parser.parse_program().unwrap();
     
-    let mut env = Environment::new();
-    let result = env.run(&ast);
+    let env = Environment::new();
+    let result = Environment::run(&env, &ast);
     
     assert!(result.is_err(), "Division by zero should throw an error");
     assert_eq!(result.unwrap_err(), "Runtime error: Division by zero!");
@@ -292,9 +278,6 @@ fn test_interpreter_division_by_zero() {
 // Test 17: Check comparison operators
 #[test]
 fn test_interpreter_comparison_operators() {
-    // 5 < 10 -> true
-    // 5 > 10 -> false
-    // 5 != 10 -> true
     let code = "var a = 5\nvar b = 10\nvar c = a < b\nvar d = a > b\nvar e = a != b";
     
     let mut lex = Lexer::new(code);
@@ -303,20 +286,17 @@ fn test_interpreter_comparison_operators() {
     let mut parser = Parser::new(tokens);
     let ast = parser.parse_program().unwrap();
     
-    let mut env = Environment::new();
-    env.run(&ast).unwrap();
+    let env = Environment::new();
+    Environment::run(&env, &ast).unwrap();
     
-    assert_eq!(env.get("c").unwrap().value, crate::interpreter::Value::Bool(true));
-    assert_eq!(env.get("d").unwrap().value, crate::interpreter::Value::Bool(false));
-    assert_eq!(env.get("e").unwrap().value, crate::interpreter::Value::Bool(true));
+    assert_eq!(Environment::get(&env, "c").unwrap().value, crate::interpreter::Value::Bool(true));
+    assert_eq!(Environment::get(&env, "d").unwrap().value, crate::interpreter::Value::Bool(false));
+    assert_eq!(Environment::get(&env, "e").unwrap().value, crate::interpreter::Value::Bool(true));
 }
 
 // Test 18: Check compound assignment operators (+=, -=)
 #[test]
 fn test_interpreter_compound_assignment() {
-    // var x = 5
-    // x += 10  (x should be 15)
-    // x -= 3   (x should be 12)
     let code = "var x = 5\nx += 10\nx -= 3";
     
     let mut lex = Lexer::new(code);
@@ -325,10 +305,10 @@ fn test_interpreter_compound_assignment() {
     let mut parser = Parser::new(tokens);
     let ast = parser.parse_program().unwrap();
     
-    let mut env = Environment::new();
-    env.run(&ast).unwrap();
+    let env = Environment::new();
+    Environment::run(&env, &ast).unwrap();
     
-    let var_info = env.get("x").expect("Variable x should exist");
+    let var_info = Environment::get(&env, "x").expect("Variable x should exist");
     assert_eq!(var_info.value, crate::interpreter::Value::Number(12));
 }
 
@@ -343,11 +323,11 @@ fn test_interpreter_boolean_literals() {
     let mut parser = Parser::new(tokens);
     let ast = parser.parse_program().unwrap();
     
-    let mut env = Environment::new();
-    env.run(&ast).unwrap();
+    let env = Environment::new();
+    Environment::run(&env, &ast).unwrap();
     
-    assert_eq!(env.get("a").unwrap().value, crate::interpreter::Value::Bool(true));
-    assert_eq!(env.get("b").unwrap().value, crate::interpreter::Value::Bool(false));
+    assert_eq!(Environment::get(&env, "a").unwrap().value, crate::interpreter::Value::Bool(true));
+    assert_eq!(Environment::get(&env, "b").unwrap().value, crate::interpreter::Value::Bool(false));
 }
 
 // Test 20: Test array literals and indexing
@@ -361,10 +341,10 @@ fn test_interpreter_arrays() {
     let mut parser = Parser::new(tokens);
     let ast = parser.parse_program().unwrap();
     
-    let mut env = Environment::new();
-    env.run(&ast).unwrap();
+    let env = Environment::new();
+    Environment::run(&env, &ast).unwrap();
     
-    assert_eq!(env.get("x").unwrap().value, crate::interpreter::Value::Number(20));
+    assert_eq!(Environment::get(&env, "x").unwrap().value, crate::interpreter::Value::Number(20));
 }
 
 // Test 21: Test array mutation
@@ -378,10 +358,10 @@ fn test_interpreter_array_mutation() {
     let mut parser = Parser::new(tokens);
     let ast = parser.parse_program().unwrap();
     
-    let mut env = Environment::new();
-    env.run(&ast).unwrap();
+    let env = Environment::new();
+    Environment::run(&env, &ast).unwrap();
     
-    let arr_val = &env.get("arr").unwrap().value;
+    let arr_val = &Environment::get(&env, "arr").unwrap().value;
     if let crate::interpreter::Value::Array(arr) = arr_val {
         assert_eq!(arr[1], crate::interpreter::Value::Number(99));
     } else {
@@ -400,10 +380,10 @@ fn test_interpreter_functions() {
     let mut parser = Parser::new(tokens);
     let ast = parser.parse_program().unwrap();
     
-    let mut env = Environment::new();
-    env.run(&ast).unwrap();
+    let env = Environment::new();
+    Environment::run(&env, &ast).unwrap();
     
-    assert_eq!(env.get("x").unwrap().value, crate::interpreter::Value::Number(15));
+    assert_eq!(Environment::get(&env, "x").unwrap().value, crate::interpreter::Value::Number(15));
 }
 
 // Test 23: Test recursion (Fibonacci or Factorial)
@@ -417,11 +397,10 @@ fn test_interpreter_recursion() {
     let mut parser = Parser::new(tokens);
     let ast = parser.parse_program().unwrap();
     
-    let mut env = Environment::new();
-    env.run(&ast).unwrap();
+    let env = Environment::new();
+    Environment::run(&env, &ast).unwrap();
     
-    // fib(10) = 55
-    assert_eq!(env.get("x").unwrap().value, crate::interpreter::Value::Number(55));
+    assert_eq!(Environment::get(&env, "x").unwrap().value, crate::interpreter::Value::Number(55));
 }
 
 // Test 24: Test <= and >= operators
@@ -435,18 +414,16 @@ fn test_comparison_leq_geq() {
     let mut parser = Parser::new(tokens);
     let ast = parser.parse_program().unwrap();
     
-    let mut env = Environment::new();
-    env.run(&ast).unwrap();
+    let env = Environment::new();
+    Environment::run(&env, &ast).unwrap();
     
-    assert_eq!(env.get("eq").unwrap().value, crate::interpreter::Value::Bool(true));
-    assert_eq!(env.get("gt").unwrap().value, crate::interpreter::Value::Bool(true));
+    assert_eq!(Environment::get(&env, "eq").unwrap().value, crate::interpreter::Value::Bool(true));
+    assert_eq!(Environment::get(&env, "gt").unwrap().value, crate::interpreter::Value::Bool(true));
 }
 
 // Test 25: Test break statement
 #[test]
 fn test_loop_break() {
-    // Sum numbers 1..5, but break when i == 3
-    // So sum should be 1 + 2 = 3
     let code = "var sum = 0\nloop i from 1..5 {\nif i == 3 {\nbreak\n}\nsum += i\n}";
     
     let mut lex = Lexer::new(code);
@@ -455,17 +432,15 @@ fn test_loop_break() {
     let mut parser = Parser::new(tokens);
     let ast = parser.parse_program().unwrap();
     
-    let mut env = Environment::new();
-    env.run(&ast).unwrap();
+    let env = Environment::new();
+    Environment::run(&env, &ast).unwrap();
     
-    assert_eq!(env.get("sum").unwrap().value, crate::interpreter::Value::Number(3));
+    assert_eq!(Environment::get(&env, "sum").unwrap().value, crate::interpreter::Value::Number(3));
 }
 
 // Test 26: Test continue statement
 #[test]
 fn test_loop_continue() {
-    // Sum numbers 1..5, but skip when i == 3
-    // So sum should be 1 + 2 + 4 = 7
     let code = "var sum = 0\nloop i from 1..5 {\nif i == 3 {\ncontinue\n}\nsum += i\n}";
     
     let mut lex = Lexer::new(code);
@@ -474,17 +449,15 @@ fn test_loop_continue() {
     let mut parser = Parser::new(tokens);
     let ast = parser.parse_program().unwrap();
     
-    let mut env = Environment::new();
-    env.run(&ast).unwrap();
+    let env = Environment::new();
+    Environment::run(&env, &ast).unwrap();
     
-    assert_eq!(env.get("sum").unwrap().value, crate::interpreter::Value::Number(7));
+    assert_eq!(Environment::get(&env, "sum").unwrap().value, crate::interpreter::Value::Number(7));
 }
 
 // Test 27: Test modulo operator
 #[test]
 fn test_modulo_operator() {
-    // 10 % 3 = 1
-    // 10 % 2 = 0 (even)
     let code = "var a = 10 % 3\nvar b = 10 % 2";
     
     let mut lex = Lexer::new(code);
@@ -493,11 +466,11 @@ fn test_modulo_operator() {
     let mut parser = Parser::new(tokens);
     let ast = parser.parse_program().unwrap();
     
-    let mut env = Environment::new();
-    env.run(&ast).unwrap();
+    let env = Environment::new();
+    Environment::run(&env, &ast).unwrap();
     
-    assert_eq!(env.get("a").unwrap().value, crate::interpreter::Value::Number(1));
-    assert_eq!(env.get("b").unwrap().value, crate::interpreter::Value::Number(0));
+    assert_eq!(Environment::get(&env, "a").unwrap().value, crate::interpreter::Value::Number(1));
+    assert_eq!(Environment::get(&env, "b").unwrap().value, crate::interpreter::Value::Number(0));
 }
 
 // Test 28: Test string interpolation
@@ -511,10 +484,10 @@ fn test_string_interpolation() {
     let mut parser = Parser::new(tokens);
     let ast = parser.parse_program().unwrap();
     
-    let mut env = Environment::new();
-    env.run(&ast).unwrap();
+    let env = Environment::new();
+    Environment::run(&env, &ast).unwrap();
     
-    assert_eq!(env.get("msg").unwrap().value, crate::interpreter::Value::Str("Jezyk Ó ma wartosc 15".to_string()));
+    assert_eq!(Environment::get(&env, "msg").unwrap().value, crate::interpreter::Value::Str("Jezyk Ó ma wartosc 15".to_string()));
 }
 
 // Test 29: Test array and string methods (push, length)
@@ -528,11 +501,11 @@ fn test_builtin_methods() {
     let mut parser = Parser::new(tokens);
     let ast = parser.parse_program().unwrap();
     
-    let mut env = Environment::new();
-    env.run(&ast).unwrap();
+    let env = Environment::new();
+    Environment::run(&env, &ast).unwrap();
     
-    assert_eq!(env.get("l1").unwrap().value, crate::interpreter::Value::Number(4));
-    assert_eq!(env.get("l2").unwrap().value, crate::interpreter::Value::Number(5));
+    assert_eq!(Environment::get(&env, "l1").unwrap().value, crate::interpreter::Value::Number(4));
+    assert_eq!(Environment::get(&env, "l2").unwrap().value, crate::interpreter::Value::Number(5));
 }
 
 // Test 30: Test type promotion (Numeric + Decimal = Decimal)
@@ -546,13 +519,11 @@ fn test_type_promotion() {
     let mut parser = Parser::new(tokens);
     let ast = parser.parse_program().unwrap();
     
-    let mut env = Environment::new();
-    env.run(&ast).unwrap();
+    let env = Environment::new();
+    Environment::run(&env, &ast).unwrap();
     
-    // 5 + 2.5 = 7.5 (Decimal)
-    assert_eq!(env.get("c").unwrap().value, crate::interpreter::Value::Decimal(7.5));
-    // 10 / 3 = 3 (Numeric, because both are integers!)
-    assert_eq!(env.get("d").unwrap().value, crate::interpreter::Value::Number(3));
+    assert_eq!(Environment::get(&env, "c").unwrap().value, crate::interpreter::Value::Decimal(7.5));
+    assert_eq!(Environment::get(&env, "d").unwrap().value, crate::interpreter::Value::Number(3));
 }
 
 // Test 31: Test type annotations and default values
@@ -566,13 +537,13 @@ fn test_type_annotations() {
     let mut parser = Parser::new(tokens);
     let ast = parser.parse_program().unwrap();
     
-    let mut env = Environment::new();
-    env.run(&ast).unwrap();
+    let env = Environment::new();
+    Environment::run(&env, &ast).unwrap();
     
-    assert_eq!(env.get("a").unwrap().value, crate::interpreter::Value::Number(0));
-    assert_eq!(env.get("b").unwrap().value, crate::interpreter::Value::Str("".to_string()));
-    assert_eq!(env.get("c").unwrap().value, crate::interpreter::Value::Bool(false));
-    assert_eq!(env.get("d").unwrap().value, crate::interpreter::Value::Decimal(3.14));
+    assert_eq!(Environment::get(&env, "a").unwrap().value, crate::interpreter::Value::Number(0));
+    assert_eq!(Environment::get(&env, "b").unwrap().value, crate::interpreter::Value::Str("".to_string()));
+    assert_eq!(Environment::get(&env, "c").unwrap().value, crate::interpreter::Value::Bool(false));
+    assert_eq!(Environment::get(&env, "d").unwrap().value, crate::interpreter::Value::Decimal(3.14));
 }
 
 // Test 32: Test truthiness (0 and empty string are false)
@@ -586,10 +557,10 @@ fn test_truthiness() {
     let mut parser = Parser::new(tokens);
     let ast = parser.parse_program().unwrap();
     
-    let mut env = Environment::new();
-    env.run(&ast).unwrap();
+    let env = Environment::new();
+    Environment::run(&env, &ast).unwrap();
     
-    assert_eq!(env.get("result").unwrap().value, crate::interpreter::Value::Str("pass".to_string()));
+    assert_eq!(Environment::get(&env, "result").unwrap().value, crate::interpreter::Value::Str("pass".to_string()));
 }
 
 // Test 33: Test method calls (arr.push)
@@ -603,17 +574,17 @@ fn test_method_calls() {
     let mut parser = Parser::new(tokens);
     let ast = parser.parse_program().unwrap();
     
-    let mut env = Environment::new();
-    env.run(&ast).unwrap();
+    let env = Environment::new();
+    Environment::run(&env, &ast).unwrap();
     
-    let arr_val = &env.get("arr").unwrap().value;
+    let arr_val = &Environment::get(&env, "arr").unwrap().value;
     if let crate::interpreter::Value::Array(arr) = arr_val {
         assert_eq!(arr.len(), 3);
     } else {
         panic!("Variable arr should be an array");
     }
     
-    assert_eq!(env.get("l").unwrap().value, crate::interpreter::Value::Number(3));
+    assert_eq!(Environment::get(&env, "l").unwrap().value, crate::interpreter::Value::Number(3));
 }
 
 // Test 34: Test execute/onError error handling
@@ -627,11 +598,10 @@ fn test_execute_on_error() {
     let mut parser = Parser::new(tokens);
     let ast = parser.parse_program().unwrap();
     
-    let mut env = Environment::new();
-    env.run(&ast).unwrap();
+    let env = Environment::new();
+    Environment::run(&env, &ast).unwrap();
     
-    // x should be 99, because the error was caught and 99 was the last expression in onError
-    assert_eq!(env.get("x").unwrap().value, crate::interpreter::Value::Number(99));
+    assert_eq!(Environment::get(&env, "x").unwrap().value, crate::interpreter::Value::Number(99));
 }
 
 // Test 35: Test if as an expression
@@ -645,10 +615,10 @@ fn test_if_as_expression() {
     let mut parser = Parser::new(tokens);
     let ast = parser.parse_program().unwrap();
     
-    let mut env = Environment::new();
-    env.run(&ast).unwrap();
+    let env = Environment::new();
+    Environment::run(&env, &ast).unwrap();
     
-    assert_eq!(env.get("y").unwrap().value, crate::interpreter::Value::Str("big".to_string()));
+    assert_eq!(Environment::get(&env, "y").unwrap().value, crate::interpreter::Value::Str("big".to_string()));
 }
 
 // Test 36: Test 'return if {} else {}' inside a function
@@ -662,11 +632,11 @@ fn test_return_if_expression() {
     let mut parser = Parser::new(tokens);
     let ast = parser.parse_program().unwrap();
     
-    let mut env = Environment::new();
-    env.run(&ast).unwrap();
+    let env = Environment::new();
+    Environment::run(&env, &ast).unwrap();
     
-    assert_eq!(env.get("x").unwrap().value, crate::interpreter::Value::Str("positive".to_string()));
-    assert_eq!(env.get("y").unwrap().value, crate::interpreter::Value::Str("zero or negative".to_string()));
+    assert_eq!(Environment::get(&env, "x").unwrap().value, crate::interpreter::Value::Str("positive".to_string()));
+    assert_eq!(Environment::get(&env, "y").unwrap().value, crate::interpreter::Value::Str("zero or negative".to_string()));
 }
 
 // Test 37: Test logical operators (and, or)
@@ -680,19 +650,17 @@ fn test_logical_operators() {
     let mut parser = Parser::new(tokens);
     let ast = parser.parse_program().unwrap();
     
-    let mut env = Environment::new();
-    env.run(&ast).unwrap();
+    let env = Environment::new();
+    Environment::run(&env, &ast).unwrap();
     
-    assert_eq!(env.get("a").unwrap().value, crate::interpreter::Value::Bool(false));
-    assert_eq!(env.get("b").unwrap().value, crate::interpreter::Value::Bool(true));
-    assert_eq!(env.get("c").unwrap().value, crate::interpreter::Value::Bool(true));
+    assert_eq!(Environment::get(&env, "a").unwrap().value, crate::interpreter::Value::Bool(false));
+    assert_eq!(Environment::get(&env, "b").unwrap().value, crate::interpreter::Value::Bool(true));
+    assert_eq!(Environment::get(&env, "c").unwrap().value, crate::interpreter::Value::Bool(true));
 }
 
 // Test 38: Test short-circuit evaluation for 'and'
 #[test]
 fn test_short_circuit_and() {
-    // If it evaluates the right side, it would throw a division by zero error.
-    // Because left is false, it should immediately return false without evaluating the right side.
     let code = "var x = false and (10 / 0 == 1)";
     
     let mut lex = Lexer::new(code);
@@ -701,18 +669,16 @@ fn test_short_circuit_and() {
     let mut parser = Parser::new(tokens);
     let ast = parser.parse_program().unwrap();
     
-    let mut env = Environment::new();
-    let result = env.run(&ast);
+    let env = Environment::new();
+    let result = Environment::run(&env, &ast);
     
     assert!(result.is_ok(), "Short-circuit 'and' should not evaluate the right side");
-    assert_eq!(env.get("x").unwrap().value, crate::interpreter::Value::Bool(false));
+    assert_eq!(Environment::get(&env, "x").unwrap().value, crate::interpreter::Value::Bool(false));
 }
 
 // Test 39: Test short-circuit evaluation for 'or'
 #[test]
 fn test_short_circuit_or() {
-    // If it evaluates the right side, it would throw a division by zero error.
-    // Because left is true, it should immediately return true without evaluating the right side.
     let code = "var x = true or (10 / 0 == 1)";
     
     let mut lex = Lexer::new(code);
@@ -721,11 +687,11 @@ fn test_short_circuit_or() {
     let mut parser = Parser::new(tokens);
     let ast = parser.parse_program().unwrap();
     
-    let mut env = Environment::new();
-    let result = env.run(&ast);
+    let env = Environment::new();
+    let result = Environment::run(&env, &ast);
     
     assert!(result.is_ok(), "Short-circuit 'or' should not evaluate the right side");
-    assert_eq!(env.get("x").unwrap().value, crate::interpreter::Value::Bool(true));
+    assert_eq!(Environment::get(&env, "x").unwrap().value, crate::interpreter::Value::Bool(true));
 }
 
 // Test 40: Test unary 'not' operator with truthiness
@@ -739,15 +705,13 @@ fn test_unary_not() {
     let mut parser = Parser::new(tokens);
     let ast = parser.parse_program().unwrap();
     
-    let mut env = Environment::new();
-    env.run(&ast).unwrap();
+    let env = Environment::new();
+    Environment::run(&env, &ast).unwrap();
     
-    assert_eq!(env.get("a").unwrap().value, crate::interpreter::Value::Bool(false));
-    assert_eq!(env.get("b").unwrap().value, crate::interpreter::Value::Bool(true));
-    // 0 is false, so not 0 is true
-    assert_eq!(env.get("c").unwrap().value, crate::interpreter::Value::Bool(true));
-    // empty string is false, so not "" is true
-    assert_eq!(env.get("d").unwrap().value, crate::interpreter::Value::Bool(true));
+    assert_eq!(Environment::get(&env, "a").unwrap().value, crate::interpreter::Value::Bool(false));
+    assert_eq!(Environment::get(&env, "b").unwrap().value, crate::interpreter::Value::Bool(true));
+    assert_eq!(Environment::get(&env, "c").unwrap().value, crate::interpreter::Value::Bool(true));
+    assert_eq!(Environment::get(&env, "d").unwrap().value, crate::interpreter::Value::Bool(true));
 }
 
 // Test 41: Test unary minus operator
@@ -761,13 +725,13 @@ fn test_unary_minus() {
     let mut parser = Parser::new(tokens);
     let ast = parser.parse_program().unwrap();
     
-    let mut env = Environment::new();
-    env.run(&ast).unwrap();
+    let env = Environment::new();
+    Environment::run(&env, &ast).unwrap();
     
-    assert_eq!(env.get("a").unwrap().value, crate::interpreter::Value::Number(-5));
-    assert_eq!(env.get("b").unwrap().value, crate::interpreter::Value::Number(7));
-    assert_eq!(env.get("c").unwrap().value, crate::interpreter::Value::Number(5));
-    assert_eq!(env.get("d").unwrap().value, crate::interpreter::Value::Decimal(-3.14));
+    assert_eq!(Environment::get(&env, "a").unwrap().value, crate::interpreter::Value::Number(-5));
+    assert_eq!(Environment::get(&env, "b").unwrap().value, crate::interpreter::Value::Number(7));
+    assert_eq!(Environment::get(&env, "c").unwrap().value, crate::interpreter::Value::Number(5));
+    assert_eq!(Environment::get(&env, "d").unwrap().value, crate::interpreter::Value::Decimal(-3.14));
 }
 
 // Test 42: Test 'loop in' for array iteration
@@ -781,10 +745,10 @@ fn test_loop_in_array() {
     let mut parser = Parser::new(tokens);
     let ast = parser.parse_program().unwrap();
     
-    let mut env = Environment::new();
-    env.run(&ast).unwrap();
+    let env = Environment::new();
+    Environment::run(&env, &ast).unwrap();
     
-    assert_eq!(env.get("sum").unwrap().value, crate::interpreter::Value::Number(60));
+    assert_eq!(Environment::get(&env, "sum").unwrap().value, crate::interpreter::Value::Number(60));
 }
 
 // Test 43: Test infinite 'loop {}' with a 'break'
@@ -798,14 +762,13 @@ fn test_loop_block_break() {
     let mut parser = Parser::new(tokens);
     let ast = parser.parse_program().unwrap();
     
-    let mut env = Environment::new();
-    env.run(&ast).unwrap();
+    let env = Environment::new();
+    Environment::run(&env, &ast).unwrap();
     
-    assert_eq!(env.get("count").unwrap().value, crate::interpreter::Value::Number(5));
+    assert_eq!(Environment::get(&env, "count").unwrap().value, crate::interpreter::Value::Number(5));
 }
 
 // Test 44: Test 'until' at the top (acts like 'while not')
-// If condition is true immediately, the block should not execute at all.
 #[test]
 fn test_until_at_top() {
     let code = "var i = 10\nvar count = 0\nloop {\nuntil (i > 5)\ncount += 1\n}";
@@ -816,15 +779,13 @@ fn test_until_at_top() {
     let mut parser = Parser::new(tokens);
     let ast = parser.parse_program().unwrap();
     
-    let mut env = Environment::new();
-    env.run(&ast).unwrap();
+    let env = Environment::new();
+    Environment::run(&env, &ast).unwrap();
     
-    // i is 10, so (i > 5) is true. The loop breaks before incrementing count.
-    assert_eq!(env.get("count").unwrap().value, crate::interpreter::Value::Number(0));
+    assert_eq!(Environment::get(&env, "count").unwrap().value, crate::interpreter::Value::Number(0));
 }
 
 // Test 45: Test 'until' at the bottom (acts like 'do-while not')
-// The block should execute at least once before checking the condition.
 #[test]
 fn test_until_at_bottom() {
     let code = "var i = 10\nvar count = 0\nloop {\ncount += 1\ni += 1\nuntil (i > 5)\n}";
@@ -835,11 +796,10 @@ fn test_until_at_bottom() {
     let mut parser = Parser::new(tokens);
     let ast = parser.parse_program().unwrap();
     
-    let mut env = Environment::new();
-    env.run(&ast).unwrap();
+    let env = Environment::new();
+    Environment::run(&env, &ast).unwrap();
     
-    // i is 10. count becomes 1. i becomes 11. until (11 > 5) is true -> breaks.
-    assert_eq!(env.get("count").unwrap().value, crate::interpreter::Value::Number(1));
+    assert_eq!(Environment::get(&env, "count").unwrap().value, crate::interpreter::Value::Number(1));
 }
 
 // Test 46: Test dictionary creation and access
@@ -853,11 +813,11 @@ fn test_dictionary_access() {
     let mut parser = Parser::new(tokens);
     let ast = parser.parse_program().unwrap();
     
-    let mut env = Environment::new();
-    env.run(&ast).unwrap();
+    let env = Environment::new();
+    Environment::run(&env, &ast).unwrap();
     
-    assert_eq!(env.get("n").unwrap().value, crate::interpreter::Value::Str("Jan".to_string()));
-    assert_eq!(env.get("a").unwrap().value, crate::interpreter::Value::Number(30));
+    assert_eq!(Environment::get(&env, "n").unwrap().value, crate::interpreter::Value::Str("Jan".to_string()));
+    assert_eq!(Environment::get(&env, "a").unwrap().value, crate::interpreter::Value::Number(30));
 }
 
 // Test 47: Test dictionary mutation
@@ -871,10 +831,10 @@ fn test_dictionary_mutation() {
     let mut parser = Parser::new(tokens);
     let ast = parser.parse_program().unwrap();
     
-    let mut env = Environment::new();
-    env.run(&ast).unwrap();
+    let env = Environment::new();
+    Environment::run(&env, &ast).unwrap();
     
-    let config_val = &env.get("config").unwrap().value;
+    let config_val = &Environment::get(&env, "config").unwrap().value;
     if let crate::interpreter::Value::Dict(map) = config_val {
         assert_eq!(map.get("debug").unwrap(), &crate::interpreter::Value::Bool(true));
     } else {
@@ -893,17 +853,16 @@ fn test_dictionary_missing_key_returns_null() {
     let mut parser = Parser::new(tokens);
     let ast = parser.parse_program().unwrap();
     
-    let mut env = Environment::new();
-    env.run(&ast).unwrap();
+    let env = Environment::new();
+    Environment::run(&env, &ast).unwrap();
     
-    assert_eq!(env.get("x").unwrap().value, crate::interpreter::Value::Null);
+    assert_eq!(Environment::get(&env, "x").unwrap().value, crate::interpreter::Value::Null);
 }
 
 // Test 49: Test dictionary string representation
 #[test]
 fn test_dictionary_to_string() {
     let code = "var user = {\"name\": \"Jan\", \"age\": 30}\nvar s = \"\"\nloop key in [\"name\", \"age\"] {\n s += \"{key}: {user[key]} \" }";
-    // Note: The above loop uses array iteration and string interpolation!
     
     let mut lex = Lexer::new(code);
     let tokens = lex.tokenize();
@@ -911,10 +870,10 @@ fn test_dictionary_to_string() {
     let mut parser = Parser::new(tokens);
     let ast = parser.parse_program().unwrap();
     
-    let mut env = Environment::new();
-    env.run(&ast).unwrap();
+    let env = Environment::new();
+    Environment::run(&env, &ast).unwrap();
     
-    assert_eq!(env.get("s").unwrap().value, crate::interpreter::Value::Str("name: Jan age: 30 ".to_string()));
+    assert_eq!(Environment::get(&env, "s").unwrap().value, crate::interpreter::Value::Str("name: Jan age: 30 ".to_string()));
 }
 
 // Test 50: Test correct type annotation on declaration
@@ -928,11 +887,11 @@ fn test_type_check_correct_decl() {
     let mut parser = Parser::new(tokens);
     let ast = parser.parse_program().unwrap();
     
-    let mut env = Environment::new();
-    let result = env.run(&ast);
+    let env = Environment::new();
+    let result = Environment::run(&env, &ast);
     
     assert!(result.is_ok(), "Correct type annotations should not fail");
-    assert_eq!(env.get("x").unwrap().value, crate::interpreter::Value::Number(10));
+    assert_eq!(Environment::get(&env, "x").unwrap().value, crate::interpreter::Value::Number(10));
 }
 
 // Test 51: Test type mismatch on declaration
@@ -946,8 +905,8 @@ fn test_type_check_mismatch_decl() {
     let mut parser = Parser::new(tokens);
     let ast = parser.parse_program().unwrap();
     
-    let mut env = Environment::new();
-    let result = env.run(&ast);
+    let env = Environment::new();
+    let result = Environment::run(&env, &ast);
     
     assert!(result.is_err(), "Should fail due to type mismatch");
     assert_eq!(result.unwrap_err(), "Type mismatch: expected 'Number', got String");
@@ -964,8 +923,8 @@ fn test_type_check_mismatch_assign() {
     let mut parser = Parser::new(tokens);
     let ast = parser.parse_program().unwrap();
     
-    let mut env = Environment::new();
-    let result = env.run(&ast);
+    let env = Environment::new();
+    let result = Environment::run(&env, &ast);
     
     assert!(result.is_err(), "Should fail when assigning wrong type to typed variable");
     assert_eq!(result.unwrap_err(), "Type mismatch: cannot assign Bool to variable of type Number");
@@ -982,10 +941,10 @@ fn test_type_check_default_array() {
     let mut parser = Parser::new(tokens);
     let ast = parser.parse_program().unwrap();
     
-    let mut env = Environment::new();
-    env.run(&ast).unwrap();
+    let env = Environment::new();
+    Environment::run(&env, &ast).unwrap();
     
-    assert_eq!(env.get("l").unwrap().value, crate::interpreter::Value::Number(1));
+    assert_eq!(Environment::get(&env, "l").unwrap().value, crate::interpreter::Value::Number(1));
 }
 
 // Test 54: Test default value for Dict type
@@ -999,10 +958,10 @@ fn test_type_check_default_dict() {
     let mut parser = Parser::new(tokens);
     let ast = parser.parse_program().unwrap();
     
-    let mut env = Environment::new();
-    env.run(&ast).unwrap();
+    let env = Environment::new();
+    Environment::run(&env, &ast).unwrap();
     
-    let d_val = &env.get("d").unwrap().value;
+    let d_val = &Environment::get(&env, "d").unwrap().value;
     if let crate::interpreter::Value::Dict(map) = d_val {
         assert_eq!(map.get("key").unwrap(), &crate::interpreter::Value::Str("value".to_string()));
     } else {
@@ -1021,10 +980,10 @@ fn test_match_literals() {
     let mut parser = Parser::new(tokens);
     let ast = parser.parse_program().unwrap();
     
-    let mut env = Environment::new();
-    env.run(&ast).unwrap();
+    let env = Environment::new();
+    Environment::run(&env, &ast).unwrap();
     
-    assert_eq!(env.get("name").unwrap().value, crate::interpreter::Value::Str("many".to_string()));
+    assert_eq!(Environment::get(&env, "name").unwrap().value, crate::interpreter::Value::Str("many".to_string()));
 }
 
 // Test 56: Test match expression with block bodies
@@ -1038,10 +997,10 @@ fn test_match_block_bodies() {
     let mut parser = Parser::new(tokens);
     let ast = parser.parse_program().unwrap();
     
-    let mut env = Environment::new();
-    env.run(&ast).unwrap();
+    let env = Environment::new();
+    Environment::run(&env, &ast).unwrap();
     
-    assert_eq!(env.get("result").unwrap().value, crate::interpreter::Value::Number(40));
+    assert_eq!(Environment::get(&env, "result").unwrap().value, crate::interpreter::Value::Number(40));
 }
 
 // Test 57: Test match with string literals
@@ -1055,10 +1014,10 @@ fn test_match_strings() {
     let mut parser = Parser::new(tokens);
     let ast = parser.parse_program().unwrap();
     
-    let mut env = Environment::new();
-    env.run(&ast).unwrap();
+    let env = Environment::new();
+    Environment::run(&env, &ast).unwrap();
     
-    assert_eq!(env.get("is_cool").unwrap().value, crate::interpreter::Value::Bool(true));
+    assert_eq!(Environment::get(&env, "is_cool").unwrap().value, crate::interpreter::Value::Bool(true));
 }
 
 // Test 58: Test match exhaustion (no matching arm)
@@ -1072,8 +1031,8 @@ fn test_match_exhaustion_fails() {
     let mut parser = Parser::new(tokens);
     let ast = parser.parse_program().unwrap();
     
-    let mut env = Environment::new();
-    let result = env.run(&ast);
+    let env = Environment::new();
+    let result = Environment::run(&env, &ast);
     
     assert!(result.is_err(), "Match should fail if no arm matches and there is no wildcard");
     assert_eq!(result.unwrap_err(), "Match expression exhausted with no matching arm");
@@ -1090,9 +1049,72 @@ fn test_nullish_coalescing() {
     let mut parser = Parser::new(tokens);
     let ast = parser.parse_program().unwrap();
     
-    let mut env = Environment::new();
-    env.run(&ast).unwrap();
+    let env = Environment::new();
+    Environment::run(&env, &ast).unwrap();
     
-    assert_eq!(env.get("name").unwrap().value, crate::interpreter::Value::Str("Jan".to_string()));
-    assert_eq!(env.get("age").unwrap().value, crate::interpreter::Value::Number(18));
+    assert_eq!(Environment::get(&env, "name").unwrap().value, crate::interpreter::Value::Str("Jan".to_string()));
+    assert_eq!(Environment::get(&env, "age").unwrap().value, crate::interpreter::Value::Number(18));
+}
+
+// Test 60: Test lambda assignment and call
+#[test]
+fn test_lambda_assignment() {
+    let code = "var double = fun(x) { return x * 2 }\nvar res = double(5)";
+    
+    let mut lex = Lexer::new(code);
+    let tokens = lex.tokenize();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse_program().unwrap();
+    
+    let env = Environment::new();
+    Environment::run(&env, &ast).unwrap();
+    
+    assert_eq!(Environment::get(&env, "res").unwrap().value, crate::interpreter::Value::Number(10));
+}
+
+// Test 61: Test closures (function capturing state)
+#[test]
+fn test_closures() {
+    let code = "
+        fun make_counter() {
+            var count = 0
+            return fun() {
+                count = count + 1
+                return count
+            }
+        }
+        var c = make_counter()
+        var r1 = c()
+        var r2 = c()
+    ";
+    let mut lex = Lexer::new(code);
+    let tokens = lex.tokenize();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse_program().unwrap();
+    
+    let env = Environment::new();
+    Environment::run(&env, &ast).unwrap();
+    
+    assert_eq!(Environment::get(&env, "r1").unwrap().value, crate::interpreter::Value::Number(1));
+    assert_eq!(Environment::get(&env, "r2").unwrap().value, crate::interpreter::Value::Number(2));
+}
+
+// Test 62: Test passing functions as arguments (Higher-order functions)
+#[test]
+fn test_higher_order_functions() {
+    let code = "
+        fun apply(func, val) {
+            return func(val)
+        }
+        var result = apply(fun(x) { return x + 10 }, 5)
+    ";
+    let mut lex = Lexer::new(code);
+    let tokens = lex.tokenize();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse_program().unwrap();
+    
+    let env = Environment::new();
+    Environment::run(&env, &ast).unwrap();
+    
+    assert_eq!(Environment::get(&env, "result").unwrap().value, crate::interpreter::Value::Number(15));
 }

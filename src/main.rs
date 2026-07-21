@@ -25,8 +25,8 @@ fn run_code(code: &str) {
     let mut parser = Parser::new(tokens);
     match parser.parse_program() {
         Ok(ast) => {
-            let mut interpreter = Environment::new();
-            match interpreter.run(&ast) {
+            let interpreter = Environment::new();
+            match Environment::run(&interpreter, &ast) {
                 Ok(_) => {}
                 Err(err) => eprintln!("Runtime error: {}", err),
             }
