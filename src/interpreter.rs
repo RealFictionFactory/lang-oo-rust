@@ -526,9 +526,10 @@ impl Environment {
                         }
                         Ok(arr[idx as usize].clone())
                     }
-                    (Value::Dict(map), Value::Str(key)) => { // NOWOŚĆ
-                        map.get(&key).cloned()
-                            .ok_or_else(|| InterpErr::Err(format!("Key '{}' not found in dictionary", key)))
+                    (Value::Dict(map), Value::Str(key)) => {
+                        // Changed: Return Null if key is missing, instead of throwing an error.
+                        // This enables the use of ?? for fallback values.
+                        Ok(map.get(&key).cloned().unwrap_or(Value::Null))
                     }
                     _ => Err(InterpErr::Err("Can only index arrays with numbers or dicts with strings".to_string()))
                 }
@@ -646,6 +647,16 @@ impl Environment {
                     return self.eval_block_as_expr(if_body);
                 } else {
                     return self.eval_block_as_expr(else_body);
+                }
+            }
+
+            // Evaluates left expression. If it is Null, evaluates and returns right expression.
+            Expr::NullCoalesce(left, right) => {
+                let left_val = self.eval_expr(left)?;
+                if let Value::Null = left_val {
+                    self.eval_expr(right)
+                } else {
+                    Ok(left_val)
                 }
             }
 

@@ -1,6 +1,6 @@
-# Ó Language - Syntax Documentation
+# `Ó` Language - Syntax Documentation
 
-"Ó" is a simple, dynamically typed programming language with a scripting nature. It was designed with readability in mind, avoiding boilerplate (like semicolons) and sounding natural.
+`Ó` (pronounced "OO" like in "mood") is a simple, dynamically typed programming language with a scripting nature. It was designed with readability in mind, avoiding boilerplate (like semicolons) and sounding natural.
 
 ## 1. Basics
 *   **No Semicolons:** End of line means end of statement. Blank lines are ignored.
@@ -15,7 +15,7 @@ The language has built-in types that can be optionally specified during declarat
 *   `Bool` - Logical value `true` or `false`.
 *   `Array` - Array of elements.
 *   `Dict` - A collection of key-value pairs where keys are Strings. Created using braces `{"key": value}`.
-*   `Null` - Absence of a value (returned e.g., by functions without a `return` statement).
+*   `Null` - Absence of a value (returned e.g., by functions without a `return` statement or missing dictionary keys).
 
 ## 3. Variables and Constants
 Declarations use the `var` (mutable) and `let` (immutable) keywords. You can specify the type using `is Type`, which assigns a default value (`0` for numbers, `false` for Bool, `""` for String, `[]` for Array, `{}` for Dict).
@@ -42,6 +42,7 @@ age = "twenty" // Runtime error: Type mismatch: cannot assign String to variable
 *   **Logical:** `and`, `or` (support short-circuit evaluation).
 *   **Comparison:** `==`, `!=`, `>`, `<`, `>=`, `<=`.
 *   **Assignment:** `=`, `+=`, `-=`.
+*   **Nullish Coalescing:** `??` (returns the left value if it is not `Null`, otherwise evaluates and returns the right value).
 
 *Concatenation:* The `+` operator concatenates strings. If you concatenate a String with a Number/Decimal, the number is automatically converted to text.
 
@@ -63,7 +64,30 @@ var status = if x > 10 { "big" } else { "small" }
 ```
 *Truthiness:* In conditions, the values `0`, `0.0`, `""` (empty string), and `false` are treated as false. Everything else evaluates to true.
 
-## 6. Loops (`loop`)
+## 6. Pattern Matching (`match`)
+`match` is a powerful alternative to long `if/else if` chains. It can be used as a statement or as an expression that returns a value. It does not fall through (no `break` needed).
+
+```text
+var x = 2
+
+// As an expression
+var name = match x {
+    0 -> "zero"
+    1 -> "one"
+    _ -> "many" // _ is a wildcard that matches everything
+}
+
+// With block bodies
+match x {
+    0 -> print("zero")
+    _ -> {
+        var y = x * 10
+        print("many: ", y)
+    }
+}
+```
+
+## 7. Loops (`loop`)
 The `loop` keyword is highly versatile and supports multiple variants:
 
 ### Range Loop
@@ -97,7 +121,7 @@ loop {
 }
 ```
 
-## 7. Functions
+## 8. Functions
 Defined using the `fun` keyword. They can return a value using `return`. They support recursion and have their own local scope (variables inside a function do not overwrite global variables).
 
 ```text
@@ -115,7 +139,7 @@ fun factorial(n) {
 print(factorial(5)) // 120
 ```
 
-## 8. Arrays
+## 9. Arrays
 Created using square brackets `[]`. Indexed from `0`.
 
 ```text
@@ -124,17 +148,23 @@ arr[0] = 99
 print(arr[0]) // 99
 ```
 
-## 9. Dictionaries (Maps)
+## 10. Dictionaries (Maps)
 Created using braces `{}` with string keys. Accessed and mutated using square brackets `[]`.
+
+Accessing a missing key returns `Null` instead of throwing an error. You can use the `??` operator to provide a fallback value.
 
 ```text
 var user = {"name": "Jan", "age": 30}
 print(user["name"]) // Jan
+
+var role = user["role"] ?? "guest" // Returns "guest" because "role" is missing
+print(role)
+
 user["age"] = 31
 print(user) // {"name": "Jan", "age": 31}
 ```
 
-## 10. String Interpolation
+## 11. String Interpolation
 Strings can contain expressions inside `{...}`. They will be evaluated and interpolated into the text.
 
 ```text
@@ -143,7 +173,7 @@ var x = 5
 print("Hello {name}! The result is {x + 5}") // Hello World! The result is 10
 ```
 
-## 11. Error Handling (`execute` / `onError`)
+## 12. Error Handling (`execute` / `onError`)
 Runtime errors (like division by zero, missing variables, or type mismatches) can be caught using the `execute` / `onError` expression. It attempts to run the first block. If an error occurs, it catches it, binds the error message to a variable, and runs the second block.
 
 ```text
@@ -156,7 +186,7 @@ var result = execute {
 print(result) // -1
 ```
 
-## 12. Built-in Functions and Extensions
+## 13. Built-in Functions and Extensions
 
 ### Global Functions
 *   `print(...args)` - Prints arguments to the screen separated by spaces.

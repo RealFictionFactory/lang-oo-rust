@@ -1,6 +1,6 @@
-# `Ó` Programming Language
+# ``Ó`` Programming Language
 
-`Ó` (pronounced "OO" like in "mood") is a small, dynamically typed, interpreted programming language built entirely in Rust. It was designed with readability and a natural feel in mind, featuring a clean syntax without semicolons and optional type annotations.
+``Ó`` (pronounced "OO" like in "mood") is a small, dynamically typed, interpreted programming language built entirely in Rust. It was designed with readability and a natural feel in mind, featuring a clean syntax without semicolons and optional type annotations.
 
 ## Project Goals
 
@@ -14,16 +14,17 @@ This is a hobbyist project created primarily for educational purposes. The main 
 * **Optional & Enforced Typing:** Variables can be strictly typed with default values (`var x is Number`) or dynamically inferred (`var x = 10`). If a type is specified, it is strictly enforced at runtime (e.g., assigning a String to a Number variable throws an error).
 * **Type Promotion:** Automatic promotion from `Number` (i64) to `Decimal` (f64) in mathematical operations.
 * **Advanced Control Flow:** 
-  * `if` can be used as a statement **and** as an expression (e.g., `var x = if cond { 1 } else { 2 }`).
+  * `if` and `match` can be used as statements **and** as expressions (e.g., `var x = if cond { 1 } else { 2 }`).
   * Versatile `loop` keyword: range loops (`loop i from 1..10`), array iteration (`loop x in arr`), and infinite loops (`loop { ... }`) with conditional `until (cond)` breaks.
   * Logical operators (`and`, `or`, `not`) with short-circuit evaluation.
 * **Error Handling:** `execute { ... } onError(err) { ... }` blocks to catch and handle runtime errors (including type mismatches) gracefully.
 * **Data Structures:** Arrays, Dictionaries (`{"key": value}`), and String interpolation (`"Hello {name}!"`).
+* **Safe Access:** Missing keys in Dictionaries return `Null` instead of crashing. The nullish coalescing operator (`??`) provides fallback values (e.g., `user["age"] ?? 18`).
 * **Lightweight Standard Library:** Global functions like `print` and `input`, alongside a clean extension method system (e.g., `"text".upper()`, `input("Age: ").asNumber()`).
 
 ## Quick Example
 
-Here is a taste of what writing in "`Ó`" looks like:
+Here is a taste of what writing in "``Ó``" looks like:
 
 ```text
 // Function with recursion
@@ -40,10 +41,15 @@ var num = input("Enter a number to calculate its factorial: ").asNumber()
 
 print("Hello, {name}!")
 
-// Dictionaries and 'if' as an expression
+// Dictionaries, 'match' expression, and Nullish Coalescing (??)
 var user = {"name": name, "age": num}
-var status = if user["age"] >= 18 { "adult" } else { "minor" }
-print("Status: {status}")
+var role = user["role"] ?? "guest" // Safely handle missing keys
+
+var status = match user["age"] {
+    0 -> "infant"
+    _ -> "person"
+}
+print("You are a {role} {status}!")
 
 // Error handling and Type Checking
 var result = execute {

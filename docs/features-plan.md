@@ -1,9 +1,5 @@
 ### Mapa drogowa rozwoju języka "Ó":
 
-2. **Bezpieczny dostęp do słowników (Optional Chaining / Nullish Coalescing)**
-   * **Cel:** Unikanie błędów wykonania przy braku klucza w słowniku.
-   * **Przykład:** `var name = user["name"] ?? "Anonymous"` (jeśli klucz nie istnieje, zwraca "Anonymous"). Albo `user?.["name"]`.
-
 3. **Funkcje pierwszej klasy, Domknięcia i Lambdy (Closures)**
    * **Cel:** Przypisywanie funkcji do zmiennych `var f = fun(x) { return x * 2 }` i przekazywanie ich dalej.
    * **Jak zrobimy:** W parserze pozwolimy na użycie `fun` wewnątrz wyrażeń. W interpreterze naprawimy `Expr::Call`, aby potrafił wywoływać zmienne przechowujące `Value::Function`. Będzie to wymagało zmiany w środowisku, aby domknięcia "pamiętały" scope, w którym zostały stworzone.

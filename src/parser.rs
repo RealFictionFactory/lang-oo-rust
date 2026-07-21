@@ -351,10 +351,11 @@ impl Parser {
     // --- EXPRESSION PARSING ---
     // Precedence: parse_expr (+, -, ==, !=, >, <) -> parse_term (*, /, %) -> parse_factor (literals, variables, parentheses)
     
-    /// Parses expressions handling logical operators (and, or).
+    /// Parses expressions handling logical operators (and, or) and nullish coalescing (??).
     fn parse_expr(&mut self) -> Result<Expr, String> {
         let mut left = self.parse_logic()?;
 
+        // Handle logical operators (and, or)
         while let Some(token) = self.peek() {
             let op = match token {
                 Token::And => BinOp::And,
@@ -365,6 +366,13 @@ impl Parser {
             self.next(); // consume operator
             let right = self.parse_logic()?;
             left = Expr::Binary(Box::new(left), op, Box::new(right));
+        }
+
+        // Handle nullish coalescing (??) - right-associative
+        while self.peek() == Some(&Token::QuestionQuestion) {
+            self.next(); // consume '??'
+            let right = self.parse_expr()?; // right-associative
+            left = Expr::NullCoalesce(Box::new(left), Box::new(right));
         }
 
         Ok(left)

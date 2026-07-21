@@ -882,9 +882,9 @@ fn test_dictionary_mutation() {
     }
 }
 
-// Test 48: Test missing key error
+// Test 48: Test missing key returns Null (for ?? operator)
 #[test]
-fn test_dictionary_missing_key_fails() {
+fn test_dictionary_missing_key_returns_null() {
     let code = "var user = {\"name\": \"Jan\"}\nvar x = user[\"age\"]";
     
     let mut lex = Lexer::new(code);
@@ -894,10 +894,9 @@ fn test_dictionary_missing_key_fails() {
     let ast = parser.parse_program().unwrap();
     
     let mut env = Environment::new();
-    let result = env.run(&ast);
+    env.run(&ast).unwrap();
     
-    assert!(result.is_err(), "Accessing a missing key should throw an error");
-    assert_eq!(result.unwrap_err(), "Key 'age' not found in dictionary");
+    assert_eq!(env.get("x").unwrap().value, crate::interpreter::Value::Null);
 }
 
 // Test 49: Test dictionary string representation
@@ -1078,4 +1077,22 @@ fn test_match_exhaustion_fails() {
     
     assert!(result.is_err(), "Match should fail if no arm matches and there is no wildcard");
     assert_eq!(result.unwrap_err(), "Match expression exhausted with no matching arm");
+}
+
+// Test 59: Test nullish coalescing (??) operator
+#[test]
+fn test_nullish_coalescing() {
+    let code = "var user = {\"name\": \"Jan\"}\nvar name = user[\"name\"] ?? \"Anonymous\"\nvar age = user[\"age\"] ?? 18";
+    
+    let mut lex = Lexer::new(code);
+    let tokens = lex.tokenize();
+    
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse_program().unwrap();
+    
+    let mut env = Environment::new();
+    env.run(&ast).unwrap();
+    
+    assert_eq!(env.get("name").unwrap().value, crate::interpreter::Value::Str("Jan".to_string()));
+    assert_eq!(env.get("age").unwrap().value, crate::interpreter::Value::Number(18));
 }

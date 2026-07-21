@@ -26,9 +26,10 @@ pub enum Token {
     Use,
     Execute,
     OnError,
-    Colon,      // :
+    Colon,              // :
     Match,
-    Arrow,      // ->
+    Arrow,              // ->
+    QuestionQuestion,   // ??
 
     // Literals (values)
     Number(i64),
@@ -109,7 +110,7 @@ impl Lexer {
                 continue;
             }
 
-            // Newline = end of statement in the "Ó" language
+            // Newline = end of statement in the "`Ó`" language
             if ch == '\n' {
                 tokens.push(Token::NewLine);
                 continue;
@@ -319,6 +320,14 @@ impl Lexer {
                     }
                 }
                 ':' => tokens.push(Token::Colon),
+                '?' => {
+                    if let Some(&'?') = self.peek() {
+                        self.next_char();
+                        tokens.push(Token::QuestionQuestion);
+                    } else {
+                        panic!("Unknown character: ? (did you mean '??'?)");
+                    }
+                }
                 _ => panic!("Unknown character: {}", ch),
             }
         }

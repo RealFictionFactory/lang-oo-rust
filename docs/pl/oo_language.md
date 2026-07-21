@@ -1,6 +1,6 @@
-# Język "Ó" - Dokumentacja Składni
+# Język "`Ó`" - Dokumentacja Składni
 
-"Ó" to prosty, dynamicznie typowany język programowania z naturą zbliżoną do skryptowych. Został zaprojektowany z myślą o czytelności, braku "boilerplate'u" (np. średników) i naturalnym brzmieniu.
+"`Ó`" to prosty, dynamicznie typowany język programowania z naturą zbliżoną do skryptowych. Został zaprojektowany z myślą o czytelności, braku "boilerplate'u" (np. średników) i naturalnym brzmieniu.
 
 ## 1. Podstawy
 *   **Brak średników:** Koniec linii oznacza koniec instrukcji. Puste linie są ignorowane.

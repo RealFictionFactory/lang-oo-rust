@@ -51,6 +51,10 @@ pub enum Expr {
     /// A unary operation: `operator right` (e.g., `-5` or `not true`)
     Unary(UnOp, Box<Expr>),
     
+    /// A nullish coalescing expression: `left ?? right`
+    /// Returns `left` if it is not Null, otherwise evaluates and returns `right`.
+    NullCoalesce(Box<Expr>, Box<Expr>),
+
     /// A match expression: `match value { pattern -> body }`
     Match(Box<Expr>, Vec<(Option<Expr>, Vec<Stmt>)>),
 

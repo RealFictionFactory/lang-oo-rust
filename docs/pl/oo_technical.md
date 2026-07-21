@@ -1,6 +1,6 @@
-# Język "Ó" - Dokumentacja Techniczna
+# Język "`Ó`" - Dokumentacja Techniczna
 
-Ten dokument opisuje architekturę interpretera języka "Ó" napisanego w języku Rust.
+Ten dokument opisuje architekturę interpretera języka "`Ó`" napisanego w języku Rust.
 
 ## 1. Architektura
 Interpreter implementuje klasyczny potok tłumaczenia i wykonania kodu:
