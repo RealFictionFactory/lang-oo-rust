@@ -15,8 +15,8 @@ pub enum Value {
     Decimal(f64),
     Str(String),
     Bool(bool),
-    Array(Rc<RefCell<Vec<Value>>>), // Shared mutable array
-    Dict(HashMap<String, Value>),
+    Array(Rc<RefCell<Vec<Value>>>),             // Shared mutable array
+    Dict(Rc<RefCell<HashMap<String, Value>>>),  // Shared mutable dict
     // Stores Rc<RefCell<Environment>> to allow closures to share state with their definition scope
     Function(Vec<String>, Vec<Stmt>, Rc<RefCell<Environment>>),
     Builtin(BuiltinFn),
@@ -36,7 +36,11 @@ impl PartialEq for Value {
                 let b_ref = b.borrow();
                 a_ref.len() == b_ref.len() && a_ref.iter().zip(b_ref.iter()).all(|(x, y)| x == y)
             }
-            (Value::Dict(a), Value::Dict(b)) => a == b,
+            (Value::Dict(a), Value::Dict(b)) => {
+                let a_ref = a.borrow();
+                let b_ref = b.borrow();
+                a_ref.len() == b_ref.len() && a_ref.iter().all(|(k, v)| b_ref.get(k).map_or(false, |bv| v == bv))
+            }
             (Value::Null, Value::Null) => true,
             (Value::Function(a, b, _), Value::Function(c, d, _)) => a == c && b == d,
             _ => false, 
@@ -61,7 +65,8 @@ impl Value {
                 format!("[{}]", formatted.join(", "))
             }
             Value::Dict(map) => {
-                let formatted: Vec<String> = map.iter()
+                let map_ref = map.borrow();
+                let formatted: Vec<String> = map_ref.iter()
                     .map(|(k, v)| format!("\"{}\": {}", k, v.to_string()))
                     .collect();
                 format!("{{{}}}", formatted.join(", "))
@@ -297,7 +302,8 @@ impl Environment {
                                     return Ok(());
                                 }
                                 (Value::Dict(map), Value::Str(key)) => {
-                                    map.insert(key, val);
+                                    let mut map_mut = map.borrow_mut();
+                                    map_mut.insert(key, val);
                                     return Ok(());
                                 }
                                 _ => return Err(InterpErr::Err(format!("'{}' is not an array or dict", name).to_string()))
@@ -521,7 +527,7 @@ impl Environment {
                     if let Value::Str(key) = k_val { map.insert(key, v_val); } 
                     else { return Err(InterpErr::Err("Dictionary keys must evaluate to String".to_string())); }
                 }
-                Ok(Value::Dict(map))
+                Ok(Value::Dict(Rc::new(RefCell::new(map)))) // ZMIANA
             }
 
             Expr::IndexGet(container_expr, idx_expr) => {
@@ -535,7 +541,10 @@ impl Environment {
                         }
                         Ok(arr_ref[idx as usize].clone())
                     }
-                    (Value::Dict(map), Value::Str(key)) => Ok(map.get(&key).cloned().unwrap_or(Value::Null)),
+                    (Value::Dict(map), Value::Str(key)) => {
+                        let map_ref = map.borrow();
+                        Ok(map_ref.get(&key).cloned().unwrap_or(Value::Null))
+                    }
                     _ => Err(InterpErr::Err("Can only index arrays with numbers or dicts with strings".to_string()))
                 }
             }
@@ -626,7 +635,7 @@ impl Environment {
                 "String" => Ok(Value::Str("".to_string())),
                 "Bool" => Ok(Value::Bool(false)),
                 "Array" => Ok(Value::Array(Rc::new(RefCell::new(Vec::new())))),
-                "Dict" => Ok(Value::Dict(HashMap::new())),
+                "Dict" => Ok(Value::Dict(Rc::new(RefCell::new(HashMap::new())))),
                 "Null" => Ok(Value::Null),
                 _ => Err(InterpErr::Err(format!("Unknown type: {}", t))),
             },
@@ -669,7 +678,7 @@ impl Environment {
             Value::Array(arr) => !arr.borrow().is_empty(),
             Value::Null => false,
             Value::Function(_, _, _) | Value::Builtin(_) => true,
-            Value::Dict(hash_map) => !hash_map.is_empty(),
+            Value::Dict(map) => !map.borrow().is_empty(),
         }
     }
 

@@ -836,7 +836,7 @@ fn test_dictionary_mutation() {
     
     let config_val = &Environment::get(&env, "config").unwrap().value;
     if let crate::interpreter::Value::Dict(map) = config_val {
-        assert_eq!(map.get("debug").unwrap(), &crate::interpreter::Value::Bool(true));
+        assert_eq!(map.borrow().get("debug").unwrap(), &crate::interpreter::Value::Bool(true));
     } else {
         panic!("Variable config should be a dictionary");
     }
@@ -963,7 +963,7 @@ fn test_type_check_default_dict() {
     
     let d_val = &Environment::get(&env, "d").unwrap().value;
     if let crate::interpreter::Value::Dict(map) = d_val {
-        assert_eq!(map.get("key").unwrap(), &crate::interpreter::Value::Str("value".to_string()));
+        assert_eq!(map.borrow().get("key").unwrap(), &crate::interpreter::Value::Str("value".to_string()));
     } else {
         panic!("Variable d should be a Dict");
     }
