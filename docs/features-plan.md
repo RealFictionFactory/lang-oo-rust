@@ -1,12 +1,5 @@
 ### Mapa drogowa rozwoju języka "Ó":
 
-1. **Rozbudowa Standardowej Biblioteki (String & Array Methods)**
-   * **Cel:** Poszerzenie API o często używane operacje.
-   * **Pomysły:** 
-     * Dla Stringów: `.split(separator)`, `.contains(substring)`, `.trim()`, `.replace(old, new)`.
-     * Dla Tablic: `.pop()`, `.contains(element)`, `.join(separator)`.
-     * *Uwaga:* Metody takie jak `.map(fun)` i `.filter(fun)` zależą od wdrożenia domknięć (Punkt 1).
-
 2. **Operacje na plikach (Wbudowany obiekt `File`)**
    * **Cel:** Wprowadzenie wbudowanego obiektu `File` do obsługi I/O (odczyt, zapis, dopisywanie) bez konieczności wdrażania pełnego systemu OOP (klas) w języku "Ó".
    * **Jak zrobimy:** Dodamy nowy wariant `Value::File` w interpreterze. Wprowadzimy globalną funkcję-konstruktor `file(path)`, która zwróci obiekt pliku. W obsłudze `Expr::MethodCall` dodamy specjalne ścieżki dla typu `File`, aby obsługiwać metody takie jak `read()`, `write(text)` czy `append(text)`.

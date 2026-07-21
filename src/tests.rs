@@ -363,7 +363,7 @@ fn test_interpreter_array_mutation() {
     
     let arr_val = &Environment::get(&env, "arr").unwrap().value;
     if let crate::interpreter::Value::Array(arr) = arr_val {
-        assert_eq!(arr[1], crate::interpreter::Value::Number(99));
+        assert_eq!(arr.borrow()[1], crate::interpreter::Value::Number(99));
     } else {
         panic!("Variable arr should be an array");
     }
@@ -579,7 +579,7 @@ fn test_method_calls() {
     
     let arr_val = &Environment::get(&env, "arr").unwrap().value;
     if let crate::interpreter::Value::Array(arr) = arr_val {
-        assert_eq!(arr.len(), 3);
+        assert_eq!(arr.borrow().len(), 3);
     } else {
         panic!("Variable arr should be an array");
     }
@@ -1117,4 +1117,122 @@ fn test_higher_order_functions() {
     Environment::run(&env, &ast).unwrap();
     
     assert_eq!(Environment::get(&env, "result").unwrap().value, crate::interpreter::Value::Number(15));
+}
+
+// Test 63: Test string methods (trim, contains, replace, split)
+#[test]
+fn test_string_methods() {
+    let code = "
+        var s = \"  hello world  \"
+        var t = s.trim()
+        var c1 = s.contains(\"world\")
+        var c2 = s.contains(\"Ó\")
+        var r = s.replace(\"world\", \"Ó\")
+        var p = \"a,b,c\".split(\",\")
+        var p0 = p[0]
+        var p1 = p[1]
+        var p2 = p[2]
+    ";
+    let mut lex = Lexer::new(code);
+    let tokens = lex.tokenize();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse_program().unwrap();
+    
+    let env = Environment::new();
+    Environment::run(&env, &ast).unwrap();
+    
+    assert_eq!(Environment::get(&env, "t").unwrap().value, crate::interpreter::Value::Str("hello world".to_string()));
+    assert_eq!(Environment::get(&env, "c1").unwrap().value, crate::interpreter::Value::Bool(true));
+    assert_eq!(Environment::get(&env, "c2").unwrap().value, crate::interpreter::Value::Bool(false));
+    assert_eq!(Environment::get(&env, "r").unwrap().value, crate::interpreter::Value::Str("  hello Ó  ".to_string()));
+    assert_eq!(Environment::get(&env, "p0").unwrap().value, crate::interpreter::Value::Str("a".to_string()));
+    assert_eq!(Environment::get(&env, "p1").unwrap().value, crate::interpreter::Value::Str("b".to_string()));
+    assert_eq!(Environment::get(&env, "p2").unwrap().value, crate::interpreter::Value::Str("c".to_string()));
+}
+
+// Test 64: Test array methods (contains, join)
+#[test]
+fn test_array_methods() {
+    let code = "
+        var arr = [\"apple\", \"banana\", \"cherry\"]
+        var c1 = arr.contains(\"banana\")
+        var c2 = arr.contains(\"orange\")
+        var j = arr.join(\", \")
+    ";
+    let mut lex = Lexer::new(code);
+    let tokens = lex.tokenize();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse_program().unwrap();
+    
+    let env = Environment::new();
+    Environment::run(&env, &ast).unwrap();
+    
+    assert_eq!(Environment::get(&env, "c1").unwrap().value, crate::interpreter::Value::Bool(true));
+    assert_eq!(Environment::get(&env, "c2").unwrap().value, crate::interpreter::Value::Bool(false));
+    assert_eq!(Environment::get(&env, "j").unwrap().value, crate::interpreter::Value::Str("apple, banana, cherry".to_string()));
+}
+
+// Test 65: Test array.map(fun)
+#[test]
+fn test_array_map() {
+    let code = "
+        var nums = [1, 2, 3, 4, 5]
+        var doubled = nums.map(fun(x) { return x * 2 })
+        var d0 = doubled[0]
+        var d4 = doubled[4]
+    ";
+    let mut lex = Lexer::new(code);
+    let tokens = lex.tokenize();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse_program().unwrap();
+    
+    let env = Environment::new();
+    Environment::run(&env, &ast).unwrap();
+    
+    assert_eq!(Environment::get(&env, "d0").unwrap().value, crate::interpreter::Value::Number(2));
+    assert_eq!(Environment::get(&env, "d4").unwrap().value, crate::interpreter::Value::Number(10));
+}
+
+// Test 66: Test array.filter(fun)
+#[test]
+fn test_array_filter() {
+    let code = "
+        var nums = [1, 2, 3, 4, 5, 6]
+        var evens = nums.filter(fun(x) { return x % 2 == 0 })
+        var e0 = evens[0]
+        var e1 = evens[1]
+        var e2 = evens[2]
+    ";
+    let mut lex = Lexer::new(code);
+    let tokens = lex.tokenize();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse_program().unwrap();
+    
+    let env = Environment::new();
+    Environment::run(&env, &ast).unwrap();
+    
+    assert_eq!(Environment::get(&env, "e0").unwrap().value, crate::interpreter::Value::Number(2));
+    assert_eq!(Environment::get(&env, "e1").unwrap().value, crate::interpreter::Value::Number(4));
+    assert_eq!(Environment::get(&env, "e2").unwrap().value, crate::interpreter::Value::Number(6));
+}
+
+// Test 67: Test array.push after Rc<RefCell> refactor
+#[test]
+fn test_array_push_rc_refcell() {
+    let code = "
+        var arr = [1, 2, 3]
+        arr.push(4)
+        var l = arr.length()
+        var v3 = arr[3]
+    ";
+    let mut lex = Lexer::new(code);
+    let tokens = lex.tokenize();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse_program().unwrap();
+    
+    let env = Environment::new();
+    Environment::run(&env, &ast).unwrap();
+    
+    assert_eq!(Environment::get(&env, "l").unwrap().value, crate::interpreter::Value::Number(4));
+    assert_eq!(Environment::get(&env, "v3").unwrap().value, crate::interpreter::Value::Number(4));
 }

@@ -178,3 +178,27 @@ fun make_counter() {
 
 var counter1 = make_counter()
 print("Counter calls: ", counter1(), counter1(), counter1())
+
+// 22. Test String Methods (trim, contains, replace, split)
+print("\n--- String Methods ---")
+var raw_text = "  Hello World  "
+print("Trimmed: '", raw_text.trim(), "'")
+print("Contains 'World': ", raw_text.contains("World"))
+print("Replace: ", raw_text.replace("World", "Ó"))
+var parts = "a,b,c".split(",")
+print("Split parts: ", parts)
+
+// 23. Test Array Methods (contains, join)
+print("\n--- Array Methods ---")
+var items = ["apple", "banana", "cherry"]
+print("Contains 'banana': ", items.contains("banana"))
+print("Joined: ", items.join(" | "))
+
+// 24. Test Functional Array Methods (map, filter)
+print("\n--- Functional Array Methods ---")
+var numbers = [1, 2, 3, 4, 5, 6]
+var doubled = numbers.map(fun(x) { return x * 2 })
+print("Doubled: ", doubled)
+
+var evens = numbers.filter(fun(x) { return x % 2 == 0 })
+print("Evens: ", evens)

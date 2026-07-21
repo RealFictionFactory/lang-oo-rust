@@ -15,7 +15,7 @@ pub enum Value {
     Decimal(f64),
     Str(String),
     Bool(bool),
-    Array(Vec<Value>),
+    Array(Rc<RefCell<Vec<Value>>>), // Shared mutable array
     Dict(HashMap<String, Value>),
     // Stores Rc<RefCell<Environment>> to allow closures to share state with their definition scope
     Function(Vec<String>, Vec<Stmt>, Rc<RefCell<Environment>>),
@@ -31,7 +31,11 @@ impl PartialEq for Value {
             (Value::Decimal(a), Value::Decimal(b)) => a == b,
             (Value::Str(a), Value::Str(b)) => a == b,
             (Value::Bool(a), Value::Bool(b)) => a == b,
-            (Value::Array(a), Value::Array(b)) => a == b,
+            (Value::Array(a), Value::Array(b)) => {
+                let a_ref = a.borrow();
+                let b_ref = b.borrow();
+                a_ref.len() == b_ref.len() && a_ref.iter().zip(b_ref.iter()).all(|(x, y)| x == y)
+            }
             (Value::Dict(a), Value::Dict(b)) => a == b,
             (Value::Null, Value::Null) => true,
             (Value::Function(a, b, _), Value::Function(c, d, _)) => a == c && b == d,
@@ -52,7 +56,8 @@ impl Value {
             Value::Str(s) => s.clone(),
             Value::Bool(b) => b.to_string(),
             Value::Array(arr) => {
-                let formatted: Vec<String> = arr.iter().map(|v| v.to_string()).collect();
+                let arr_ref = arr.borrow();
+                let formatted: Vec<String> = arr_ref.iter().map(|v| v.to_string()).collect();
                 format!("[{}]", formatted.join(", "))
             }
             Value::Dict(map) => {
@@ -186,6 +191,36 @@ impl Environment {
         Ok(())
     }
 
+    /// Helper to execute a function value (used by stdlib for .map, .filter, etc.)
+    /// Takes a Value (Function or Builtin) and a list of arguments.
+    pub fn execute_function(func: Value, args: Vec<Value>) -> InterpResult<Value> {
+        if let Value::Function(params, body, closure_env) = func {
+            if params.len() != args.len() {
+                return Err(InterpErr::Err(format!("Expected {} arguments, got {}", params.len(), args.len())));
+            }
+            
+            let local_env = Environment::with_parent(closure_env);
+            for (i, param_name) in params.iter().enumerate() {
+                Self::insert(&local_env, param_name.clone(), VarInfo { value: args[i].clone(), is_const: false, type_name: None });
+            }
+
+            for stmt in &body {
+                match Self::eval_stmt(&local_env, stmt) {
+                    Ok(_) => {}
+                    Err(InterpErr::Return(v)) => return Ok(v),
+                    Err(InterpErr::Err(e)) => return Err(InterpErr::Err(e)),
+                    Err(InterpErr::Break) => return Err(InterpErr::Err("Break outside of loop".to_string())),
+                    Err(InterpErr::Continue) => return Err(InterpErr::Err("Continue outside of loop".to_string())),
+                }
+            }
+            return Ok(Value::Null);
+        } else if let Value::Builtin(b_func) = func {
+            return b_func(args);
+        } else {
+            return Err(InterpErr::Err("Value is not callable".to_string()));
+        }
+    }
+
     /// Evaluates a single statement.
     fn eval_stmt(env: &Rc<RefCell<Environment>>, stmt: &Stmt) -> InterpResult<()> {
         match stmt {
@@ -254,10 +289,11 @@ impl Environment {
                         if let Some(info) = env_mut.vars.get_mut(name) {
                             match (&mut info.value, idx_val) {
                                 (Value::Array(arr), Value::Number(idx)) => {
-                                    if idx < 0 || idx as usize >= arr.len() {
+                                    let mut arr_mut = arr.borrow_mut();
+                                    if idx < 0 || idx as usize >= arr_mut.len() {
                                         return Err(InterpErr::Err(format!("Array index out of bounds: {}", idx)));
                                     }
-                                    arr[idx as usize] = val;
+                                    arr_mut[idx as usize] = val;
                                     return Ok(());
                                 }
                                 (Value::Dict(map), Value::Str(key)) => {
@@ -289,7 +325,7 @@ impl Environment {
 
             Stmt::Until(condition) => {
                 let cond_val = Self::eval_expr(env, condition)?;
-                if Self::is_truthy(&cond_val) {
+                if Self::is_truthy_static(&cond_val) {
                     return Err(InterpErr::Break);
                 }
             }
@@ -320,7 +356,8 @@ impl Environment {
             Stmt::LoopIn(var_name, iterable_expr, body) => {
                 let iterable_val = Self::eval_expr(env, iterable_expr)?;
                 if let Value::Array(arr) = iterable_val {
-                    'outer: for element in arr {
+                    let arr_clone = arr.borrow().clone(); // Clone elements to avoid borrow issues during loop
+                    'outer: for element in arr_clone {
                         Self::insert(env, var_name.clone(), VarInfo { value: element, is_const: false, type_name: None });
                         for s in body {
                             match Self::eval_stmt(env, s) {
@@ -338,6 +375,7 @@ impl Environment {
             }
 
             Stmt::Break => return Err(InterpErr::Break),
+
             Stmt::Continue => return Err(InterpErr::Continue),
 
             Stmt::Use(module_name) => {
@@ -351,8 +389,11 @@ impl Environment {
     fn eval_expr(env: &Rc<RefCell<Environment>>, expr: &Expr) -> InterpResult<Value> {
         match expr {
             Expr::Number(n) => Ok(Value::Number(*n)),
+
             Expr::Decimal(n) => Ok(Value::Decimal(*n)),
+
             Expr::Str(s) => Ok(Value::Str(s.clone())),
+
             Expr::Bool(b) => Ok(Value::Bool(*b)),
             
             Expr::Variable(name) => {
@@ -368,16 +409,16 @@ impl Environment {
             Expr::Binary(left, op, right) => {
                 if let BinOp::And = op {
                     let left_val = Self::eval_expr(env, left)?;
-                    if !Self::is_truthy(&left_val) { return Ok(Value::Bool(false)); }
+                    if !Self::is_truthy_static(&left_val) { return Ok(Value::Bool(false)); }
                     let right_val = Self::eval_expr(env, right)?;
-                    return Ok(Value::Bool(Self::is_truthy(&right_val)));
+                    return Ok(Value::Bool(Self::is_truthy_static(&right_val)));
                 }
                 
                 if let BinOp::Or = op {
                     let left_val = Self::eval_expr(env, left)?;
-                    if Self::is_truthy(&left_val) { return Ok(Value::Bool(true)); }
+                    if Self::is_truthy_static(&left_val) { return Ok(Value::Bool(true)); }
                     let right_val = Self::eval_expr(env, right)?;
-                    return Ok(Value::Bool(Self::is_truthy(&right_val)));
+                    return Ok(Value::Bool(Self::is_truthy_static(&right_val)));
                 }
 
                 let left_val = Self::eval_expr(env, left)?;
@@ -462,14 +503,14 @@ impl Environment {
                         Value::Decimal(n) => Ok(Value::Decimal(-n)),
                         _ => Err(InterpErr::Err("Unary '-' can only be applied to Number or Decimal".to_string())),
                     },
-                    UnOp::Not => Ok(Value::Bool(!Self::is_truthy(&right_val))),
+                    UnOp::Not => Ok(Value::Bool(!Self::is_truthy_static(&right_val))),
                 }
             }
 
             Expr::Array(elements) => {
                 let mut vals = Vec::new();
                 for e in elements { vals.push(Self::eval_expr(env, e)?); }
-                Ok(Value::Array(vals))
+                Ok(Value::Array(Rc::new(RefCell::new(vals))))
             }
 
             Expr::Dict(pairs) => {
@@ -488,10 +529,11 @@ impl Environment {
                 let idx_val = Self::eval_expr(env, idx_expr)?;
                 match (container_val, idx_val) {
                     (Value::Array(arr), Value::Number(idx)) => {
-                        if idx < 0 || idx as usize >= arr.len() {
+                        let arr_ref = arr.borrow();
+                        if idx < 0 || idx as usize >= arr_ref.len() {
                             return Err(InterpErr::Err(format!("Array index out of bounds: {}", idx)));
                         }
-                        Ok(arr[idx as usize].clone())
+                        Ok(arr_ref[idx as usize].clone())
                     }
                     (Value::Dict(map), Value::Str(key)) => Ok(map.get(&key).cloned().unwrap_or(Value::Null)),
                     _ => Err(InterpErr::Err("Can only index arrays with numbers or dicts with strings".to_string()))
@@ -503,34 +545,8 @@ impl Environment {
                 for arg in args { arg_vals.push(Self::eval_expr(env, arg)?); }
 
                 let callee_val = Self::eval_expr(env, callee)?;
-                
-                if let Value::Function(params, body, closure_env) = callee_val {
-                    if params.len() != arg_vals.len() {
-                        return Err(InterpErr::Err(format!("Expected {} arguments, got {}", params.len(), arg_vals.len())));
-                    }
-                    
-                    // Create local scope sharing the closure's environment
-                    let local_env = Environment::with_parent(closure_env);
-                    
-                    for (i, param_name) in params.iter().enumerate() {
-                        Self::insert(&local_env, param_name.clone(), VarInfo { value: arg_vals[i].clone(), is_const: false, type_name: None });
-                    }
-
-                    for stmt in &body {
-                        match Self::eval_stmt(&local_env, stmt) {
-                            Ok(_) => {}
-                            Err(InterpErr::Return(v)) => return Ok(v),
-                            Err(InterpErr::Err(e)) => return Err(InterpErr::Err(e)),
-                            Err(InterpErr::Break) => return Err(InterpErr::Err("Break outside of loop".to_string())),
-                            Err(InterpErr::Continue) => return Err(InterpErr::Err("Continue outside of loop".to_string())),
-                        }
-                    }
-                    return Ok(Value::Null);
-                } else if let Value::Builtin(func) = callee_val {
-                    return func(arg_vals);
-                } else {
-                    return Err(InterpErr::Err("Value is not callable".to_string()));
-                }
+                // Use the shared helper to execute the function
+                return Self::execute_function(callee_val, arg_vals);
             }
 
             Expr::MethodCall(obj_expr, method_name, args) => {
@@ -539,22 +555,8 @@ impl Environment {
 
                 let obj_val = Self::eval_expr(env, obj_expr)?;
 
-                if method_name == "push" {
-                    if let Expr::Variable(name) = &**obj_expr {
-                        if let Some(var_env) = Self::find_env_with_var(env, name) {
-                            let mut env_mut = var_env.borrow_mut();
-                            if let Some(info) = env_mut.vars.get_mut(name) {
-                                if let Value::Array(arr_mut) = &mut info.value {
-                                    arr_mut.push(arg_vals[0].clone());
-                                    return Ok(Value::Null);
-                                }
-                            }
-                        }
-                        return Err(InterpErr::Err("Can only push to an array variable".to_string()));
-                    }
-                    return Err(InterpErr::Err("Can only call push() on a variable".to_string()));
-                }
-
+                // The rest are non-mutating methods (pure functions).
+                // We look them up in the registered extensions!
                 if let Some(ext_fn) = env.borrow().extensions.get(method_name) {
                     let ext_fn = *ext_fn;
                     return ext_fn(obj_val, arg_vals);
@@ -586,7 +588,7 @@ impl Environment {
 
             Expr::If(condition, if_body, else_body) => {
                 let cond_value = Self::eval_expr(env, condition)?;
-                if Self::is_truthy(&cond_value) {
+                if Self::is_truthy_static(&cond_value) {
                     return Self::eval_block_as_expr(env, if_body);
                 } else {
                     return Self::eval_block_as_expr(env, else_body);
@@ -623,7 +625,7 @@ impl Environment {
                 "Decimal" => Ok(Value::Decimal(0.0)),
                 "String" => Ok(Value::Str("".to_string())),
                 "Bool" => Ok(Value::Bool(false)),
-                "Array" => Ok(Value::Array(Vec::new())),
+                "Array" => Ok(Value::Array(Rc::new(RefCell::new(Vec::new())))),
                 "Dict" => Ok(Value::Dict(HashMap::new())),
                 "Null" => Ok(Value::Null),
                 _ => Err(InterpErr::Err(format!("Unknown type: {}", t))),
@@ -658,13 +660,13 @@ impl Environment {
         }
     }
 
-    fn is_truthy(val: &Value) -> bool {
+    pub fn is_truthy_static(val: &Value) -> bool {
         match val {
             Value::Bool(b) => *b,
             Value::Number(n) => *n != 0,
             Value::Decimal(n) => *n != 0.0,
             Value::Str(s) => !s.is_empty(),
-            Value::Array(arr) => !arr.is_empty(),
+            Value::Array(arr) => !arr.borrow().is_empty(),
             Value::Null => false,
             Value::Function(_, _, _) | Value::Builtin(_) => true,
             Value::Dict(hash_map) => !hash_map.is_empty(),
