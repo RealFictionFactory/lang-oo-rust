@@ -1,10 +1,11 @@
-# `Ó` Language - Syntax Documentation
+# Ó Language - Syntax Documentation
 
-`Ó` (pronounced "OO" like in "mood") is a simple, dynamically typed programming language with a scripting nature. It was designed with readability in mind, avoiding boilerplate (like semicolons) and sounding natural.
+"Ó" is a simple, dynamically typed programming language with a scripting nature. It was designed with readability in mind, avoiding boilerplate (like semicolons) and sounding natural.
 
 ## 1. Basics
 *   **No Semicolons:** End of line means end of statement. Blank lines are ignored.
 *   **Comments:** Start with `//` and continue to the end of the line.
+*   **Shebang:** Unix shebangs (`#!/usr/bin/env ooi`) are allowed on the first line and are ignored by the lexer.
 *   **Code Blocks:** Enclosed in braces `{ ... }`. The opening brace can be on a new line.
 
 ## 2. Data Types
@@ -13,8 +14,8 @@ The language has built-in types that can be optionally specified during declarat
 *   `Decimal` - 64-bit floating-point number.
 *   `String` - Text enclosed in double quotes.
 *   `Bool` - Logical value `true` or `false`.
-*   `Array` - Array of elements.
-*   `Dict` - A collection of key-value pairs where keys are Strings. Created using braces `{"key": value}`.
+*   `Array` - Array of elements. Passed by reference (mutable inside functions).
+*   `Dict` - A collection of key-value pairs where keys are Strings. Created using braces `{"key": value}`. Passed by reference.
 *   `Null` - Absence of a value (returned e.g., by functions without a `return` statement or missing dictionary keys).
 
 ## 3. Variables and Constants
@@ -24,7 +25,6 @@ Declarations use the `var` (mutable) and `let` (immutable) keywords. You can spe
 var x = 10
 let pi = 3.14
 var name is String  // defaults to ""
-var counter is Number // defaults to 0
 var arr is Array // defaults to []
 ```
 
@@ -122,25 +122,31 @@ loop {
 ```
 
 ## 8. Functions
-Defined using the `fun` keyword. They can return a value using `return`. They support recursion and have their own local scope (variables inside a function do not overwrite global variables).
+Defined using the `fun` keyword. They can return a value using `return`. They support recursion and have their own local scope. Functions are First-Class Citizens, meaning they can be assigned to variables (lambdas), passed as arguments, and returned from other functions (closures).
 
 ```text
 fun add(a, b) {
   return a + b
 }
 
-fun factorial(n) {
-  if n <= 1 {
-    return 1
-  }
-  return n * factorial(n - 1)
-}
+// Lambda assigned to a variable
+var double = fun(x) { return x * 2 }
 
-print(factorial(5)) // 120
+// Closure capturing state
+fun make_counter() {
+    var count = 0
+    return fun() {
+        count = count + 1
+        return count
+    }
+}
+var c = make_counter()
+print(c()) // 1
+print(c()) // 2
 ```
 
 ## 9. Arrays
-Created using square brackets `[]`. Indexed from `0`.
+Created using square brackets `[]`. Indexed from `0`. Passed by reference.
 
 ```text
 var arr = [1, 2, 3]
@@ -149,7 +155,7 @@ print(arr[0]) // 99
 ```
 
 ## 10. Dictionaries (Maps)
-Created using braces `{}` with string keys. Accessed and mutated using square brackets `[]`.
+Created using braces `{}` with string keys. Accessed and mutated using square brackets `[]`. Passed by reference.
 
 Accessing a missing key returns `Null` instead of throwing an error. You can use the `??` operator to provide a fallback value.
 
@@ -191,24 +197,30 @@ print(result) // -1
 ### Global Functions
 *   `print(...args)` - Prints arguments to the screen separated by spaces.
 *   `input(prompt)` - Displays the prompt and waits for user input. Always returns a `String`.
+*   `args()` - Returns an `Array` of `String` containing the command-line arguments passed to the script.
+*   `exit(code)` - Terminates the program immediately with the given exit code (`Number`).
+*   `shell(command)` - Executes a command in the system shell (`cmd` on Windows, `sh` on Unix) and returns the combined stdout/stderr output as a `String`.
 
-### Extension Methods
+### Extension Methods (Strings & Arrays)
 Extension methods can be chained to values.
-
-**String Conversions:**
-*   `.asNumber()` - Converts a String to a `Number` (integer).
-*   `.asDecimal()` - Converts a String to a `Decimal` (float).
-*   `.asBoolean()` - Converts a String to a `Bool` (recognizes "true"/"1" as true, "false"/"0" as false).
 
 **String Methods:**
 *   `.upper()` - Returns the string in uppercase.
 *   `.lower()` - Returns the string in lowercase.
+*   `.trim()` - Returns a new string with leading and trailing whitespace removed.
+*   `.contains(substring)` - Returns `true` if the string contains the given substring.
+*   `.replace(old, new)` - Returns a new string where all occurrences of `old` are replaced with `new`.
+*   `.split(separator)` - Returns an `Array` of strings split by the separator.
 
 **Array & String Shared Methods:**
 *   `.length()` - Returns the length of a String (character count) or an Array (element count).
+*   `.contains(element)` - Returns `true` if the Array/String contains the given element/substring.
 
 **Array Methods:**
 *   `.push(element)` - Adds an element to the end of the array (mutates the array in place).
+*   `.join(separator)` - Joins all elements of the array into a single String, separated by the given separator.
+*   `.map(fun)` - Returns a new array by applying the given function (lambda) to each element.
+*   `.filter(fun)` - Returns a new array containing only elements for which the function returned `true`.
 
 ### Example Usage of Input and Extensions:
 ```text
@@ -218,6 +230,23 @@ print("Hello, ", name, "!")
 var age = input("Enter your age: ").asNumber()
 print("Next year you will be ", age + 1, " years old.")
 
-let shout = input("Say something quietly: ").upper()
-print("SHOUTING: ", shout)
+var nums = [1, 2, 3, 4, 5]
+var evens = nums.filter(fun(x) { return x % 2 == 0 })
+print("Even numbers: ", evens.join(", "))
+```
+
+## 14. File I/O (`use io`)
+File operations are available by loading the `io` module. It provides a `file()` constructor which returns a `File` object (implemented as a Dictionary under the hood).
+
+```text
+use io
+
+var f = file("output.txt")
+if not f.exists() {
+    f.write("New file\n")
+}
+f.append("Appending a new line\n")
+
+var content = f.read()
+print("File content:\n", content)
 ```

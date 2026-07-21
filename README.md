@@ -1,6 +1,6 @@
-# ``Ó`` Programming Language
+# `Ó` Programming Language
 
-``Ó`` (pronounced "OO" like in "mood") is a small, dynamically typed, interpreted programming language built entirely in Rust. It was designed with readability and a natural feel in mind, featuring a clean syntax without semicolons and optional type annotations.
+`Ó` (pronounced "OO" like in "mood") is a small, dynamically typed, interpreted programming language built entirely in Rust. It was designed with readability and a natural feel in mind, featuring a clean syntax without semicolons and optional type annotations.
 
 ## Project Goals
 
@@ -11,27 +11,31 @@ This is a hobbyist project created primarily for educational purposes. The main 
 ## Features
 
 * **Clean Syntax:** No semicolons required. Newlines determine the end of statements.
-* **Optional & Enforced Typing:** Variables can be strictly typed with default values (`var x is Number`) or dynamically inferred (`var x = 10`). If a type is specified, it is strictly enforced at runtime (e.g., assigning a String to a Number variable throws an error).
-* **Type Promotion:** Automatic promotion from `Number` (i64) to `Decimal` (f64) in mathematical operations.
+* **Optional & Enforced Typing:** Variables can be strictly typed with default values (`var x is Number`) or dynamically inferred (`var x = 10`). If a type is specified, it is strictly enforced at runtime.
 * **Advanced Control Flow:** 
-  * `if` and `match` can be used as statements **and** as expressions (e.g., `var x = if cond { 1 } else { 2 }`).
-  * Versatile `loop` keyword: range loops (`loop i from 1..10`), array iteration (`loop x in arr`), and infinite loops (`loop { ... }`) with conditional `until (cond)` breaks.
+  * `if` and `match` can be used as statements **and** as expressions.
+  * Versatile `loop` keyword: range loops, array iteration, and infinite loops with conditional `until` breaks.
   * Logical operators (`and`, `or`, `not`) with short-circuit evaluation.
-* **Error Handling:** `execute { ... } onError(err) { ... }` blocks to catch and handle runtime errors (including type mismatches) gracefully.
-* **Data Structures:** Arrays, Dictionaries (`{"key": value}`), and String interpolation (`"Hello {name}!"`).
-* **Safe Access:** Missing keys in Dictionaries return `Null` instead of crashing. The nullish coalescing operator (`??`) provides fallback values (e.g., `user["age"] ?? 18`).
-* **Lightweight Standard Library:** Global functions like `print` and `input`, alongside a clean extension method system (e.g., `"text".upper()`, `input("Age: ").asNumber()`).
+* **First-Class Functions & Closures:** Assign functions to variables, pass them as arguments, and capture state with lambdas (`var f = fun(x) { return x * 2 }`).
+* **Error Handling:** `execute { ... } onError(err) { ... }` blocks to catch and handle runtime errors gracefully.
+* **Data Structures:** Arrays and Dictionaries (`{"key": value}`) are passed by reference, making them mutable inside functions. String interpolation (`"Hello {name}!"`) is supported natively.
+* **Safe Access:** Missing keys in Dictionaries return `Null` instead of crashing. The nullish coalescing operator (`??`) provides fallback values.
+* **Rich Standard Library:** Built-in extension methods for Strings (`trim`, `contains`, `replace`, `split`) and Arrays (`contains`, `join`, `push`). Supports functional programming with `.map(fun)` and `.filter(fun)`.
+* **File I/O:** A built-in `File` object (loaded via `use io`) for reading, writing, and appending to files.
+* **Shell Scripting Support:** Execute system commands (`shell()`), read CLI arguments (`args()`), handle exit codes (`exit()`), and use shebangs (`#!`) to run scripts natively in Unix shells.
 
 ## Quick Example
 
-Here is a taste of what writing in "``Ó``" looks like:
+Here is a taste of what writing in "`Ó`" looks like:
 
 ```text
+#!/usr/bin/env ooi
+
+use io
+
 // Function with recursion
 fun factorial(n) {
-  if n <= 1 {
-    return 1
-  }
+  if n <= 1 { return 1 }
   return n * factorial(n - 1)
 }
 
@@ -43,7 +47,7 @@ print("Hello, {name}!")
 
 // Dictionaries, 'match' expression, and Nullish Coalescing (??)
 var user = {"name": name, "age": num}
-var role = user["role"] ?? "guest" // Safely handle missing keys
+var role = user["role"] ?? "guest"
 
 var status = match user["age"] {
     0 -> "infant"
@@ -51,14 +55,15 @@ var status = match user["age"] {
 }
 print("You are a {role} {status}!")
 
-// Error handling and Type Checking
-var result = execute {
-  var typed_num is Number = 50
-  typed_num = "this will fail" // Throws a type mismatch error
-  print("Factorial of {num} is {factorial(num)}")
-} onError(err) {
-  print("Something went wrong: {err}")
-}
+// Functional programming with closures
+var nums = [1, 2, 3, 4, 5]
+var doubled = nums.map(fun(x) { return x * 2 })
+print("Doubled: {doubled}")
+
+// File I/O
+var f = file("output.txt")
+f.write("Factorial of {num} is {factorial(num)}")
+print("File exists: {f.exists()}")
 ```
 
 ## Architecture
@@ -67,9 +72,9 @@ The interpreter is divided into clean, separate modules:
 * `lexer.rs` - Tokenizes the raw source code.
 * `parser.rs` - Converts tokens into an Abstract Syntax Tree (AST) using Recursive Descent Parsing.
 * `ast.rs` - Definitions for AST nodes (Expressions and Statements).
-* `interpreter.rs` - Walks the AST and executes the program, managing scopes, environments, and runtime type checking.
+* `interpreter.rs` - Walks the AST and executes the program, managing scopes, environments, and runtime type checking. The core is kept "dumb" and generic.
 * `stdlib.rs` - The standard library (global functions and extension methods).
-* `modules/` - Placeholder for future loadable extension modules.
+* `modules/` - Loadable extension modules (like `io` for file operations).
 
 ## How to Run
 
@@ -84,6 +89,13 @@ Make sure you have the [Rust toolchain](https://www.rust-lang.org/tools/install)
 2. **File mode:**
    ```bash
    cargo run -- script.oo
+   ```
+
+3. **Shell Script mode (Unix/Linux/macOS):**
+   Install the binary globally: `cargo install --path .`
+   Then make your script executable (`chmod +x script.oo`) and run it directly:
+   ```bash
+   ./script.oo
    ```
 
 ---
