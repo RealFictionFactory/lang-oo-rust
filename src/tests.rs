@@ -1361,3 +1361,98 @@ fn test_and_binds_tighter_than_or() {
     assert_eq!(Environment::get(&env, "b").unwrap().value, crate::interpreter::Value::Bool(true));
     assert_eq!(Environment::get(&env, "c").unwrap().value, crate::interpreter::Value::Bool(true));
 }
+
+// Test 73: Loop iterator variables are loop-local.
+// Regression: loops inserted the iterator into the enclosing scope, so a surrounding
+// binding of the same name was overwritten and left holding the last iteration's value.
+#[test]
+fn test_loop_variable_does_not_clobber_outer_binding() {
+    let code = "
+        var i = 7
+        var e = \"untouched\"
+        loop i from 1..3 {
+        }
+        loop e in [1, 2] {
+        }
+    ";
+    let mut lex = Lexer::new(code);
+    let tokens = lex.tokenize();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse_program().unwrap();
+
+    let env = Environment::new();
+    Environment::run(&env, &ast).unwrap();
+
+    assert_eq!(Environment::get(&env, "i").unwrap().value, crate::interpreter::Value::Number(7));
+    assert_eq!(Environment::get(&env, "e").unwrap().value, crate::interpreter::Value::Str("untouched".to_string()));
+}
+
+// Test 74: The onError variable is handler-local.
+// Regression: it was inserted into the enclosing scope, so it overwrote an existing
+// binding of the same name and stayed visible after the handler finished.
+#[test]
+fn test_on_error_variable_is_handler_local() {
+    let code = "
+        var e = 1
+        var r = execute { var z = undefined_thing } onError(e) { \"caught\" }
+    ";
+    let mut lex = Lexer::new(code);
+    let tokens = lex.tokenize();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse_program().unwrap();
+
+    let env = Environment::new();
+    Environment::run(&env, &ast).unwrap();
+
+    assert_eq!(Environment::get(&env, "r").unwrap().value, crate::interpreter::Value::Str("caught".to_string()));
+    // The handler ran, but `e` still holds the outer value rather than the error message.
+    assert_eq!(Environment::get(&env, "e").unwrap().value, crate::interpreter::Value::Number(1));
+}
+
+// Test 75: Declarations inside a block stay inside that block.
+#[test]
+fn test_block_declarations_do_not_leak() {
+    let code = "
+        if true {
+            var inside = 5
+        }
+        print(inside)
+    ";
+    let mut lex = Lexer::new(code);
+    let tokens = lex.tokenize();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse_program().unwrap();
+
+    let env = Environment::new();
+    let result = Environment::run(&env, &ast);
+
+    assert!(result.is_err(), "block-local declaration should not be visible outside the block");
+    assert!(Environment::get(&env, "inside").is_none());
+}
+
+// Test 76: Blocks can still read and assign to bindings from enclosing scopes.
+#[test]
+fn test_blocks_can_mutate_enclosing_bindings() {
+    let code = "
+        var total = 0
+        loop i from 1..4 {
+            total = total + i
+        }
+        var seen = \"\"
+        loop x in [1, 2] {
+            if true {
+                seen = seen + x
+            }
+        }
+    ";
+    let mut lex = Lexer::new(code);
+    let tokens = lex.tokenize();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse_program().unwrap();
+
+    let env = Environment::new();
+    Environment::run(&env, &ast).unwrap();
+
+    assert_eq!(Environment::get(&env, "total").unwrap().value, crate::interpreter::Value::Number(6));
+    assert_eq!(Environment::get(&env, "seen").unwrap().value, crate::interpreter::Value::Str("12".to_string()));
+}

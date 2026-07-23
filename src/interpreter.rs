@@ -127,14 +127,28 @@ impl Environment {
         rc_env
     }
 
-    /// Creates a child environment with a parent scope. 
+    /// Creates a child environment with a parent scope.
+    /// The extension registry starts empty and is resolved through the parent chain by
+    /// `find_extension`, so creating a scope stays cheap no matter how many are registered.
     pub fn with_parent(parent: Rc<RefCell<Environment>>) -> Rc<RefCell<Environment>> {
-        let ext = parent.borrow().extensions.clone();
-        Rc::new(RefCell::new(Environment { 
-            vars: HashMap::new(), 
+        Rc::new(RefCell::new(Environment {
+            vars: HashMap::new(),
             parent: Some(parent),
-            extensions: ext,
+            extensions: HashMap::new(),
         }))
+    }
+
+    /// Looks up an extension method by name, walking up the scope chain.
+    /// Returns the function pointer by value so no borrow outlives the lookup.
+    fn find_extension(env: &Rc<RefCell<Environment>>, name: &str) -> Option<ExtensionFn> {
+        let env_ref = env.borrow();
+        if let Some(f) = env_ref.extensions.get(name) {
+            return Some(*f);
+        }
+        match &env_ref.parent {
+            Some(p) => Self::find_extension(p, name),
+            None => None,
+        }
     }
 
     /// Looks up a variable in the current scope, recursively checking parent scopes.
@@ -270,10 +284,13 @@ impl Environment {
                 let start_val = Self::eval_expr(env, start_expr)?;
                 let end_val = Self::eval_expr(env, end_expr)?;
                 if let (Value::Number(start), Value::Number(end)) = (start_val, end_val) {
+                    // The iterator and anything the body declares live in a loop-owned scope,
+                    // so they neither clobber nor outlive the surrounding bindings.
+                    let loop_env = Self::with_parent(Rc::clone(env));
                     'outer: for i in start..end {
-                        Self::insert(env, var_name.clone(), VarInfo { value: Value::Number(i), is_const: false, type_name: None });
+                        Self::insert(&loop_env, var_name.clone(), VarInfo { value: Value::Number(i), is_const: false, type_name: None });
                         for s in body {
-                            match Self::eval_stmt(env, s) {
+                            match Self::eval_stmt(&loop_env, s) {
                                 Ok(_) => {}
                                 Err(InterpErr::Continue) => continue 'outer,
                                 Err(InterpErr::Break) => break 'outer,
@@ -340,10 +357,12 @@ impl Environment {
             }
 
             Stmt::LoopBlock(body) => {
+                // Loop-owned scope, as in the other two loop forms.
+                let loop_env = Self::with_parent(Rc::clone(env));
                 loop {
                     let mut should_break = false;
                     for s in body {
-                        match Self::eval_stmt(env, s) {
+                        match Self::eval_stmt(&loop_env, s) {
                             Ok(_) => {}
                             Err(InterpErr::Break) => {
                                 should_break = true;
@@ -366,10 +385,12 @@ impl Environment {
                 let iterable_val = Self::eval_expr(env, iterable_expr)?;
                 if let Value::Array(arr) = iterable_val {
                     let arr_clone = arr.borrow().clone(); // Clone elements to avoid borrow issues during loop
+                    // Loop-owned scope, as in the range loop above.
+                    let loop_env = Self::with_parent(Rc::clone(env));
                     'outer: for element in arr_clone {
-                        Self::insert(env, var_name.clone(), VarInfo { value: element, is_const: false, type_name: None });
+                        Self::insert(&loop_env, var_name.clone(), VarInfo { value: element, is_const: false, type_name: None });
                         for s in body {
-                            match Self::eval_stmt(env, s) {
+                            match Self::eval_stmt(&loop_env, s) {
                                 Ok(_) => {}
                                 Err(InterpErr::Continue) => continue 'outer,
                                 Err(InterpErr::Break) => break 'outer,
@@ -569,10 +590,10 @@ impl Environment {
 
                 // The rest are non-mutating methods (pure functions).
                 // We look them up in the registered extensions!
-                // Copy the function pointer out first so the borrow on `env` is released
-                // before we call it: extensions like map()/filter() run user callbacks that
+                // find_extension returns the pointer by value, so no borrow on `env` is held
+                // during the call: extensions like map()/filter() run user callbacks that
                 // may assign to variables in this very scope, which needs a mutable borrow.
-                let ext_fn = env.borrow().extensions.get(method_name).copied();
+                let ext_fn = Self::find_extension(env, method_name);
                 if let Some(ext_fn) = ext_fn {
                     return ext_fn(obj_val, arg_vals);
                 }
@@ -588,14 +609,18 @@ impl Environment {
                 match Self::eval_block_as_expr(env, run_body) {
                     Ok(val) => return Ok(val),
                     Err(InterpErr::Err(msg)) => {
+                        // The error variable is handler-local: it lives in the handler's own
+                        // scope, so it neither overwrites an existing binding of the same
+                        // name nor stays visible once the handler finishes.
+                        let catch_env = Self::with_parent(Rc::clone(env));
                         if let Some(var_name) = err_var {
-                            Self::insert(env, var_name.clone(), VarInfo { 
-                                value: Value::Str(msg), 
+                            Self::insert(&catch_env, var_name.clone(), VarInfo {
+                                value: Value::Str(msg),
                                 is_const: true,
                                 type_name: Some("String".to_string())
                             });
                         }
-                        return Self::eval_block_as_expr(env, catch_body);
+                        return Self::eval_block_in_scope(&catch_env, catch_body);
                     }
                     Err(other_err) => return Err(other_err),
                 }
@@ -688,7 +713,18 @@ impl Environment {
         }
     }
 
+    /// Runs a block in a fresh child scope, so anything it declares is discarded on exit.
+    /// Returns the value of the last expression statement, which is what makes
+    /// `if`, `match` and `execute` usable as expressions.
     fn eval_block_as_expr(env: &Rc<RefCell<Environment>>, stmts: &[Stmt]) -> InterpResult<Value> {
+        let block_env = Self::with_parent(Rc::clone(env));
+        Self::eval_block_in_scope(&block_env, stmts)
+    }
+
+    /// Runs a block directly in the given scope, without creating another one.
+    /// Used when the caller has already built the scope in order to seed it first,
+    /// as `onError` does with its error variable.
+    fn eval_block_in_scope(env: &Rc<RefCell<Environment>>, stmts: &[Stmt]) -> InterpResult<Value> {
         let mut last_val = Value::Null;
         for stmt in stmts {
             match stmt {

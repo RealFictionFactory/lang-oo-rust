@@ -41,6 +41,28 @@ Date: 2026-07-23
 
    The flat level is replaced by one function per precedence tier — `parse_or`, `parse_and`, `parse_equality`, `parse_comparison`, `parse_additive` — each delegating to the next-tighter one. `??` keeps its existing position as the loosest operator, and unary `-`/`not` keep theirs. Regression tests cover both groupings.
 
+4. **Blocks did not introduce a scope, and the extension registry was copied per scope** — fixed in *fix: give blocks their own scope*  
+   File: `src/interpreter.rs`  
+   Only function calls created an environment. `if`, `match`, `execute`/`onError` and all three loop forms ran their bodies directly in the enclosing scope, so three things went wrong at once:
+
+   | Program | Before | After |
+   | --- | --- | --- |
+   | `var i = 7` then `loop i from 1..2 {}` | `i` is `1` | `i` is `7` |
+   | `let e = 1` then `execute {…} onError(e) {…}` | `e` holds the error message afterwards | `e` is `1`, handler-local |
+   | `if true { var x = 5 }` then `x` | `5` | `Variable 'x' is not defined` |
+
+   Blocks now run in a child scope: `eval_block_as_expr` creates one, loops own a scope holding their iterator, and `onError` seeds its error variable into the handler's own scope via the new `eval_block_in_scope`. Assignment still walks the parent chain, so blocks read and mutate enclosing bindings as before.
+
+   This was only affordable because `with_parent()` no longer clones the whole `extensions` map for each scope — the previously separate performance concern. Extensions resolve through the parent chain instead, via `find_extension`. Creating a scope became cheap enough that adding scopes to every block cost nothing measurable, and function calls got faster (200,000 calls, best of three, release):
+
+   | Case | Before | After |
+   | --- | --- | --- |
+   | Function calls | 0.12s | 0.06s |
+   | `if` blocks, one new scope each | 0.04s | 0.04s |
+   | Lambda allocated inside a hot loop | 0.16s | 0.07s |
+
+   Still open, and listed below: loop bodies share one scope across all iterations rather than getting a fresh one per iteration, so closures created in a loop all observe the final value of the iterator.
+
 ## Confirmed Issues
 
 1. **REPL exits on first syntax or runtime error**  
@@ -71,21 +93,17 @@ Date: 2026-07-23
    Files: `src/interpreter.rs`, `src/stdlib.rs`  
    Indexed assignment mutates arrays/dictionaries without checking `is_const`. Mutating extension methods also bypass it: `let xs = [1]; xs.push(2)` succeeds. Because values are shared through `Rc<RefCell<_>>`, an alias can mutate a container held by a `let` binding as well.
 
-8. **`onError` variable overwrites and leaks into surrounding scope**  
+8. **Unknown declared types are accepted when initialized**  
    File: `src/interpreter.rs`  
-   `ExecuteCatch` inserts its error variable into the current environment. It can overwrite an existing `let` binding and remains visible after the handler completes, rather than being handler-local.
+   `value_matches_type()` returns `true` for every unknown type name. `var x is MadeUp = 1` succeeds, while `var x is MadeUp` fails because no default value exists. This makes type handling inconsistent.
 
-9. **Loop iterator variables overwrite surrounding bindings**  
+9. **Closure/environment reference cycles leak memory**  
    File: `src/interpreter.rs`  
-   Range and array loops insert their iterator into the current environment. `var i = 7; loop i from 1..2 {}; print(i)` prints `1`; the loop variable is neither scoped nor restored.
+   A function stores a strong `Rc` reference to its defining environment, and that environment stores the function. Function declarations and stored lambdas can therefore form `Rc` cycles that are never released.
 
-10. **Unknown declared types are accepted when initialized**  
+10. **Closures created in a loop all capture the final iterator value**  
     File: `src/interpreter.rs`  
-    `value_matches_type()` returns `true` for every unknown type name. `var x is MadeUp = 1` succeeds, while `var x is MadeUp` fails because no default value exists. This makes type handling inconsistent.
-
-11. **Closure/environment reference cycles leak memory**  
-    File: `src/interpreter.rs`  
-    A function stores a strong `Rc` reference to its defining environment, and that environment stores the function. Function declarations and stored lambdas can therefore form `Rc` cycles that are never released.
+    A loop owns one scope shared by every iteration rather than creating a fresh one per iteration, and closures capture that scope by reference. `var fs = []; loop i from 0..3 { fs.push(fun() { return i }) }` leaves every closure returning `2`.
 
 ## Performance Concerns
 
@@ -93,12 +111,8 @@ Date: 2026-07-23
    Files: `src/interpreter.rs`, `src/stdlib.rs`  
    `loop in`, `.map()`, and `.filter()` clone complete arrays before iteration. This adds O(n) time and memory overhead per operation, although it currently avoids `RefCell` borrow conflicts when callbacks mutate the array.
 
-2. **Extension registry cloned for every function call**  
-   File: `src/interpreter.rs`  
-   `with_parent()` clones the full `extensions` map for each function-local environment. Function-call cost grows with registered extension count.
-
 ## Verification
 
-- `cargo test --all-targets` passed: 72 passed, 0 failed (68 at the time of review, plus 4 regression tests added with the fixes above).
-- Targeted runtime checks reproduced REPL state loss, `let` mutation, unchecked-argument panic, literal-overflow panic, arithmetic-overflow panic, unterminated-string acceptance, error-variable leakage, loop-variable overwrite, and unknown-type acceptance.
+- `cargo test --all-targets` passed: 76 passed, 0 failed (68 at the time of review, plus 8 regression tests added with the fixes above).
+- Targeted runtime checks reproduced REPL state loss, `let` mutation, unchecked-argument panic, literal-overflow panic, arithmetic-overflow panic, unterminated-string acceptance, unknown-type acceptance, and loop-closure capture.
 - `cargo clippy --all-targets -- -D warnings` currently fails with 35 diagnostics. Most are style/idiom diagnostics; they are not counted as functional findings above.
