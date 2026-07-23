@@ -16,6 +16,20 @@ Date: 2026-07-23
 
    The panic was a process abort rather than an `InterpErr`, so `execute`/`onError` could not catch it. The fix copies the function pointer out with `.copied()` before the call; regression tests cover `map()` and `filter()` callbacks assigning to an enclosing scope.
 
+2. **Function bodies were deep-copied on every call** — fixed in *perf: share function params and body via Rc*  
+   Files: `src/ast.rs`, `src/parser.rs`, `src/interpreter.rs`  
+   `Value::Function` owned `Vec<String>` parameters and a `Vec<Stmt>` body by value, and `Environment::get()` clones the whole `VarInfo` on every variable lookup. Calling a function therefore deep-copied its entire AST first, making call cost proportional to the function's source size rather than to the work it does. Parameters and body now sit behind `Rc` in `Expr::Lambda`, `Stmt::FuncDecl` and `Value::Function`, so a lookup clones three pointers.
+
+   Measured with 200,000 calls, best of three, release build. The padded case adds 400 statements inside an `if false` block, so they are never executed — the cost was purely the copying:
+
+   | Case | Before | After |
+   | --- | --- | --- |
+   | Empty body | 0.15s | 0.11s |
+   | 400 never-executed statements in body | 1.93s | 0.12s |
+   | Lambda allocated inside a hot loop | 0.20s | 0.16s |
+
+   Call cost is now flat in body size instead of growing 13x.
+
 ## Confirmed Issues
 
 1. **REPL exits on first syntax or runtime error**  

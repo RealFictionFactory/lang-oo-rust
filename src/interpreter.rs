@@ -17,8 +17,10 @@ pub enum Value {
     Bool(bool),
     Array(Rc<RefCell<Vec<Value>>>),             // Shared mutable array
     Dict(Rc<RefCell<HashMap<String, Value>>>),  // Shared mutable dict
-    // Stores Rc<RefCell<Environment>> to allow closures to share state with their definition scope
-    Function(Vec<String>, Vec<Stmt>, Rc<RefCell<Environment>>),
+    // Stores Rc<RefCell<Environment>> to allow closures to share state with their definition scope.
+    // Parameters and body are shared via Rc: Value is cloned on every variable lookup, and
+    // deep-copying the body there made each call cost O(size of the function's source).
+    Function(Rc<Vec<String>>, Rc<Vec<Stmt>>, Rc<RefCell<Environment>>),
     Builtin(BuiltinFn),
     Null,
 }
@@ -209,7 +211,7 @@ impl Environment {
                 Self::insert(&local_env, param_name.clone(), VarInfo { value: args[i].clone(), is_const: false, type_name: None });
             }
 
-            for stmt in &body {
+            for stmt in body.iter() {
                 match Self::eval_stmt(&local_env, stmt) {
                     Ok(_) => {}
                     Err(InterpErr::Return(v)) => return Ok(v),
@@ -316,8 +318,9 @@ impl Environment {
             }
 
             Stmt::FuncDecl(name, params, body) => {
-                // Capture the current environment by cloning the Rc (cheap, shared ownership)
-                let func_val = Value::Function(params.clone(), body.clone(), Rc::clone(env));
+                // Capture the current environment by cloning the Rc (cheap, shared ownership).
+                // Params and body are Rc too, so this clones three pointers, not the AST.
+                let func_val = Value::Function(Rc::clone(params), Rc::clone(body), Rc::clone(env));
                 Self::insert(env, name.clone(), VarInfo { value: func_val, is_const: true, type_name: None });
             }
 
@@ -409,7 +412,7 @@ impl Environment {
 
             Expr::Lambda(params, body) => {
                 // Closures capture the Rc to the current environment
-                Ok(Value::Function(params.clone(), body.clone(), Rc::clone(env)))
+                Ok(Value::Function(Rc::clone(params), Rc::clone(body), Rc::clone(env)))
             }
 
             Expr::Binary(left, op, right) => {

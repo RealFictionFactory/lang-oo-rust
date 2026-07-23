@@ -2,6 +2,7 @@
 
 use crate::ast::{BinOp, Expr, Stmt, UnOp};
 use crate::lexer::{Token, Lexer};
+use std::rc::Rc;
 
 /// The Parser takes a list of tokens from the Lexer and constructs an Abstract Syntax Tree (AST).
 pub struct Parser {
@@ -263,7 +264,7 @@ impl Parser {
         }
 
         let body = self.parse_block()?;
-        Ok(Stmt::FuncDecl(name, params, body))
+        Ok(Stmt::FuncDecl(name, Rc::new(params), Rc::new(body)))
     }
 
     /// Parses a return statement: `return [expr]`
@@ -514,7 +515,7 @@ impl Parser {
                 }
 
                 let body = self.parse_block()?;
-                return Ok(Expr::Lambda(params, body));
+                return Ok(Expr::Lambda(Rc::new(params), Rc::new(body)));
             }
 
             Some(Token::If) => {

@@ -1,5 +1,7 @@
 // src/ast.rs
 
+use std::rc::Rc;
+
 /// Represents all available binary operators in the language.
 /// Covers mathematical operations (arithmetic) and logical/comparison operations.
 #[derive(Debug, Clone, PartialEq)]
@@ -81,7 +83,9 @@ pub enum Expr {
     ExecuteCatch(Vec<Stmt>, Option<String>, Vec<Stmt>),
 
     /// An anonymous function (lambda): `fun(params) { body }`
-    Lambda(Vec<String>, Vec<Stmt>),
+    /// Parameters and body are behind an `Rc` so that evaluating the expression
+    /// hands the resulting value a shared handle instead of deep-copying the body.
+    Lambda(Rc<Vec<String>>, Rc<Vec<Stmt>>),
 }
 
 /// Represents an Abstract Syntax Tree (AST) node for a Statement (Instruction).
@@ -120,7 +124,8 @@ pub enum Stmt {
     Until(Expr),
 
     /// A function declaration: `func name(parameters) { body }`
-    FuncDecl(String, Vec<String>, Vec<Stmt>),
+    /// Parameters and body are behind an `Rc` for the same reason as `Expr::Lambda`.
+    FuncDecl(String, Rc<Vec<String>>, Rc<Vec<Stmt>>),
     
     /// A return statement: `return expression` (expression is optional, defaults to Null)
     Return(Option<Expr>),
