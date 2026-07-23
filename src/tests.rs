@@ -1314,3 +1314,50 @@ fn test_filter_callback_assigns_to_outer_variable() {
     assert_eq!(Environment::get(&env, "seen").unwrap().value, crate::interpreter::Value::Number(4));
     assert_eq!(Environment::get(&env, "count").unwrap().value, crate::interpreter::Value::Number(2));
 }
+
+// Test 71: Comparisons bind more loosely than + and -.
+// Regression: both sat on one precedence level, so `1 < 2 + 3` grouped as `(1 < 2) + 3`
+// and failed at runtime with "Incompatible types in binary operation".
+#[test]
+fn test_comparison_binds_looser_than_arithmetic() {
+    let code = "
+        var a = 1 < 2 + 3
+        var b = 1 + 4 > 2
+        var c = 10 - 2 <= 8
+    ";
+    let mut lex = Lexer::new(code);
+    let tokens = lex.tokenize();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse_program().unwrap();
+
+    let env = Environment::new();
+    Environment::run(&env, &ast).unwrap();
+
+    assert_eq!(Environment::get(&env, "a").unwrap().value, crate::interpreter::Value::Bool(true));
+    assert_eq!(Environment::get(&env, "b").unwrap().value, crate::interpreter::Value::Bool(true));
+    assert_eq!(Environment::get(&env, "c").unwrap().value, crate::interpreter::Value::Bool(true));
+}
+
+// Test 72: `and` binds more tightly than `or`.
+// Regression: both sat on one left-associative level, so `true or false and false`
+// grouped as `(true or false) and false` and evaluated to false.
+// Both cases put `or` first, which is where the two groupings disagree.
+#[test]
+fn test_and_binds_tighter_than_or() {
+    let code = "
+        var a = true or false and false
+        var b = true or true and false
+        var c = 1 < 2 and 3 < 4
+    ";
+    let mut lex = Lexer::new(code);
+    let tokens = lex.tokenize();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse_program().unwrap();
+
+    let env = Environment::new();
+    Environment::run(&env, &ast).unwrap();
+
+    assert_eq!(Environment::get(&env, "a").unwrap().value, crate::interpreter::Value::Bool(true));
+    assert_eq!(Environment::get(&env, "b").unwrap().value, crate::interpreter::Value::Bool(true));
+    assert_eq!(Environment::get(&env, "c").unwrap().value, crate::interpreter::Value::Bool(true));
+}

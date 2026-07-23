@@ -350,24 +350,22 @@ impl Parser {
     }
 
     // --- EXPRESSION PARSING ---
-    // Precedence: parse_expr (+, -, ==, !=, >, <) -> parse_term (*, /, %) -> parse_factor (literals, variables, parentheses)
-    
-    /// Parses expressions handling logical operators (and, or) and nullish coalescing (??).
+    // One function per precedence level, loosest first. Each level loops over its own
+    // operators and delegates to the next-tighter level for its operands:
+    //
+    //   parse_expr       ??
+    //   parse_or         or
+    //   parse_and        and
+    //   parse_equality   ==  !=
+    //   parse_comparison <  >  <=  >=
+    //   parse_additive   +  -
+    //   parse_term       *  /  %
+    //   parse_unary      -x  not x
+    //   parse_factor     literals, variables, parentheses, postfix [] . ()
+
+    /// Parses a full expression, starting at the loosest-binding operator.
     fn parse_expr(&mut self) -> Result<Expr, String> {
-        let mut left = self.parse_logic()?;
-
-        // Handle logical operators (and, or)
-        while let Some(token) = self.peek() {
-            let op = match token {
-                Token::And => BinOp::And,
-                Token::Or => BinOp::Or,
-                _ => break,
-            };
-
-            self.next(); // consume operator
-            let right = self.parse_logic()?;
-            left = Expr::Binary(Box::new(left), op, Box::new(right));
-        }
+        let mut left = self.parse_or()?;
 
         // Handle nullish coalescing (??) - right-associative
         while self.peek() == Some(&Token::QuestionQuestion) {
@@ -379,20 +377,80 @@ impl Parser {
         Ok(left)
     }
 
-    /// Parses logical operations (and, or) by calling the arithmetic parser.
-    fn parse_logic(&mut self) -> Result<Expr, String> {
+    /// Parses `or`, which binds more loosely than `and`.
+    fn parse_or(&mut self) -> Result<Expr, String> {
+        let mut left = self.parse_and()?;
+
+        while self.peek() == Some(&Token::Or) {
+            self.next(); // consume 'or'
+            let right = self.parse_and()?;
+            left = Expr::Binary(Box::new(left), BinOp::Or, Box::new(right));
+        }
+
+        Ok(left)
+    }
+
+    /// Parses `and`, which binds more tightly than `or` but looser than comparisons.
+    fn parse_and(&mut self) -> Result<Expr, String> {
+        let mut left = self.parse_equality()?;
+
+        while self.peek() == Some(&Token::And) {
+            self.next(); // consume 'and'
+            let right = self.parse_equality()?;
+            left = Expr::Binary(Box::new(left), BinOp::And, Box::new(right));
+        }
+
+        Ok(left)
+    }
+
+    /// Parses the equality operators `==` and `!=`.
+    fn parse_equality(&mut self) -> Result<Expr, String> {
+        let mut left = self.parse_comparison()?;
+
+        while let Some(token) = self.peek() {
+            let op = match token {
+                Token::EqEq => BinOp::Equals,
+                Token::NotEq => BinOp::NotEquals,
+                _ => break,
+            };
+
+            self.next(); // consume operator
+            let right = self.parse_comparison()?;
+            left = Expr::Binary(Box::new(left), op, Box::new(right));
+        }
+
+        Ok(left)
+    }
+
+    /// Parses the ordering comparisons `<`, `>`, `<=` and `>=`.
+    fn parse_comparison(&mut self) -> Result<Expr, String> {
+        let mut left = self.parse_additive()?;
+
+        while let Some(token) = self.peek() {
+            let op = match token {
+                Token::GreaterThan => BinOp::GreaterThan,
+                Token::LessThan => BinOp::LessThan,
+                Token::GreaterEq => BinOp::GreaterEq,
+                Token::LessEq => BinOp::LessEq,
+                _ => break,
+            };
+
+            self.next(); // consume operator
+            let right = self.parse_additive()?;
+            left = Expr::Binary(Box::new(left), op, Box::new(right));
+        }
+
+        Ok(left)
+    }
+
+    /// Parses addition and subtraction, which bind more tightly than any comparison.
+    fn parse_additive(&mut self) -> Result<Expr, String> {
         let mut left = self.parse_term()?;
 
         while let Some(token) = self.peek() {
             let op = match token {
                 Token::Plus => BinOp::Add,
                 Token::Minus => BinOp::Subtract,
-                Token::EqEq => BinOp::Equals,
-                Token::NotEq => BinOp::NotEquals,
-                Token::GreaterThan => BinOp::GreaterThan,
-                Token::LessThan => BinOp::LessThan,
-                Token::GreaterEq => BinOp::GreaterEq,
-                Token::LessEq => BinOp::LessEq,
                 _ => break,
             };
 
