@@ -1265,6 +1265,52 @@ fn test_file_operations() {
     assert_eq!(Environment::get(&env, "exists_before").unwrap().value, crate::interpreter::Value::Bool(false));
     assert_eq!(Environment::get(&env, "exists_after").unwrap().value, crate::interpreter::Value::Bool(true));
     assert_eq!(Environment::get(&env, "content").unwrap().value, crate::interpreter::Value::Str("Line 1\nLine 2\n".to_string()));
-    
+
     let _ = std::fs::remove_file(filename); // Cleanup after test
+}
+
+// Test 69: A map() callback may assign to a variable in the enclosing scope.
+// Regression: the extension lookup used to hold a borrow on the environment while
+// running the callback, so any assignment panicked with "RefCell already borrowed".
+#[test]
+fn test_map_callback_assigns_to_outer_variable() {
+    let code = "
+        var total = 0
+        var nums = [1, 2, 3]
+        var same = nums.map(fun(x) { total = total + x
+            return x })
+        var s0 = same[0]
+    ";
+    let mut lex = Lexer::new(code);
+    let tokens = lex.tokenize();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse_program().unwrap();
+
+    let env = Environment::new();
+    Environment::run(&env, &ast).unwrap();
+
+    assert_eq!(Environment::get(&env, "total").unwrap().value, crate::interpreter::Value::Number(6));
+    assert_eq!(Environment::get(&env, "s0").unwrap().value, crate::interpreter::Value::Number(1));
+}
+
+// Test 70: The same applies to filter() callbacks.
+#[test]
+fn test_filter_callback_assigns_to_outer_variable() {
+    let code = "
+        var seen = 0
+        var nums = [1, 2, 3, 4]
+        var evens = nums.filter(fun(x) { seen += 1
+            return x % 2 == 0 })
+        var count = evens.length()
+    ";
+    let mut lex = Lexer::new(code);
+    let tokens = lex.tokenize();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse_program().unwrap();
+
+    let env = Environment::new();
+    Environment::run(&env, &ast).unwrap();
+
+    assert_eq!(Environment::get(&env, "seen").unwrap().value, crate::interpreter::Value::Number(4));
+    assert_eq!(Environment::get(&env, "count").unwrap().value, crate::interpreter::Value::Number(2));
 }

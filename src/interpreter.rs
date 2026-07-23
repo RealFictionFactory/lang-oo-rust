@@ -566,8 +566,11 @@ impl Environment {
 
                 // The rest are non-mutating methods (pure functions).
                 // We look them up in the registered extensions!
-                if let Some(ext_fn) = env.borrow().extensions.get(method_name) {
-                    let ext_fn = *ext_fn;
+                // Copy the function pointer out first so the borrow on `env` is released
+                // before we call it: extensions like map()/filter() run user callbacks that
+                // may assign to variables in this very scope, which needs a mutable borrow.
+                let ext_fn = env.borrow().extensions.get(method_name).copied();
+                if let Some(ext_fn) = ext_fn {
                     return ext_fn(obj_val, arg_vals);
                 }
 
