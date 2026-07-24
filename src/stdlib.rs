@@ -90,6 +90,19 @@ fn builtin_input(args: Vec<Value>) -> InterpResult<Value> {
 // --- EXTENSION FUNCTIONS ---
 // Signature: fn(receiver: Value, args: Vec<Value>) -> InterpResult<Value>
 
+/// Returns an interpreter error unless at least `expected` arguments were supplied.
+/// Extension methods call this before indexing into `args`, so a call like `[].push()`
+/// produces a language-level error instead of panicking on out-of-bounds indexing.
+fn check_arity(method: &str, args: &[Value], expected: usize) -> InterpResult<()> {
+    if args.len() < expected {
+        return Err(InterpErr::Err(format!(
+            "{}() expects {} argument(s), got {}",
+            method, expected, args.len()
+        )));
+    }
+    Ok(())
+}
+
 /// Converts a String to an integer (Number). Fails if the string is not a valid integer.
 fn ext_as_number(receiver: Value, _args: Vec<Value>) -> InterpResult<Value> {
     if let Value::Str(s) = receiver {
@@ -160,6 +173,7 @@ fn ext_length(receiver: Value, _args: Vec<Value>) -> InterpResult<Value> {
 
 /// Adds an element to the end of the array (mutates the array in place via Rc<RefCell>).
 fn ext_push(receiver: Value, args: Vec<Value>) -> InterpResult<Value> {
+    check_arity("push", &args, 1)?;
     if let Value::Array(arr) = receiver {
         arr.borrow_mut().push(args[0].clone());
         Ok(Value::Null)
@@ -179,6 +193,7 @@ fn ext_trim(receiver: Value, _args: Vec<Value>) -> InterpResult<Value> {
 
 /// Returns true if the String contains the given substring, or if the Array contains the given element.
 fn ext_contains(receiver: Value, args: Vec<Value>) -> InterpResult<Value> {
+    check_arity("contains", &args, 1)?;
     match receiver {
         Value::Str(s) => {
             if let Value::Str(sub) = &args[0] {
@@ -199,6 +214,7 @@ fn ext_contains(receiver: Value, args: Vec<Value>) -> InterpResult<Value> {
 
 /// Returns a new String where all occurrences of `old` are replaced with `new`.
 fn ext_replace(receiver: Value, args: Vec<Value>) -> InterpResult<Value> {
+    check_arity("replace", &args, 2)?;
     if let (Value::Str(s), Value::Str(old), Value::Str(new)) = (receiver, &args[0], &args[1]) {
         Ok(Value::Str(s.replace(old, new)))
     } else {
@@ -208,6 +224,7 @@ fn ext_replace(receiver: Value, args: Vec<Value>) -> InterpResult<Value> {
 
 /// Splits the String by a separator and returns an Array of Strings.
 fn ext_split(receiver: Value, args: Vec<Value>) -> InterpResult<Value> {
+    check_arity("split", &args, 1)?;
     if let (Value::Str(s), Value::Str(sep)) = (receiver, &args[0]) {
         let arr: Vec<Value> = s.split(sep)
             .map(|part| Value::Str(part.to_string()))
@@ -221,6 +238,7 @@ fn ext_split(receiver: Value, args: Vec<Value>) -> InterpResult<Value> {
 
 /// Joins all elements of an Array into a single String, separated by the given separator.
 fn ext_join(receiver: Value, args: Vec<Value>) -> InterpResult<Value> {
+    check_arity("join", &args, 1)?;
     if let (Value::Array(arr), Value::Str(sep)) = (receiver, &args[0]) {
         let arr_ref = arr.borrow();
         let parts: Vec<String> = arr_ref.iter().map(|v| v.to_string()).collect();
@@ -232,6 +250,7 @@ fn ext_join(receiver: Value, args: Vec<Value>) -> InterpResult<Value> {
 
 /// Applies a given function to each element of the array, returning a new array.
 fn ext_map(receiver: Value, args: Vec<Value>) -> InterpResult<Value> {
+    check_arity("map", &args, 1)?;
     if let (Value::Array(arr), func) = (receiver, args[0].clone()) {
         let arr_ref = arr.borrow().clone(); // Clone elements to avoid borrow conflicts during execution
         let mut new_arr = Vec::new();
@@ -247,6 +266,7 @@ fn ext_map(receiver: Value, args: Vec<Value>) -> InterpResult<Value> {
 
 /// Filters the array, keeping only elements for which the function returns true.
 fn ext_filter(receiver: Value, args: Vec<Value>) -> InterpResult<Value> {
+    check_arity("filter", &args, 1)?;
     if let (Value::Array(arr), func) = (receiver, args[0].clone()) {
         let arr_ref = arr.borrow().clone();
         let mut new_arr = Vec::new();

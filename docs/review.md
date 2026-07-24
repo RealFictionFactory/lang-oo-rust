@@ -93,29 +93,29 @@ Date: 2026-07-23
    File: `src/lexer.rs`  
    The string lexer consumed characters until either a closing quote or end of input, and could not tell the two apart: `var x = "oops` reached EOF and produced a `String` token holding everything after the quote, so a missing quote passed as valid code. The loop now records whether it saw a closing quote and emits a `Token::Error` when it did not, which the parser surfaces like any other syntax error. Properly closed strings — including the empty string, multi-line strings, escapes and interpolation — are unchanged.
 
+8. **Extension methods panicked when called with too few arguments** — fixed in *fix: check argument count in stdlib extension methods*  
+   File: `src/stdlib.rs`  
+   Seven extension methods (`push`, `contains`, `replace`, `split`, `join`, `map`, `filter`) indexed `args[0]`/`args[1]` without checking the argument count, so `[].push()` or `"x".replace("a")` aborted the process with an out-of-bounds panic. A new `check_arity(method, args, expected)` helper is called at the top of each; a short call now returns e.g. `push() expects 1 argument(s), got 0` as a normal interpreter error. `io.rs` already used `args.get()` and was unaffected.
+
 ## Confirmed Issues
 
-1. **Unchecked stdlib argument indexing panics**  
-   File: `src/stdlib.rs`  
-   Several extension methods directly access `args[0]` or `args[1]` without validating argument count. For example, `[].push()` panics instead of producing an interpreter error.
-
-2. **Integer arithmetic can panic on overflow**  
+1. **Integer arithmetic can panic on overflow**  
    File: `src/interpreter.rs`  
    Arithmetic and unary negation use unchecked `i64` operations. In debug builds, `9223372036854775807 + 1` panics instead of returning a language-level runtime error.
 
-3. **`let` protection is bypassed for mutable containers**  
+2. **`let` protection is bypassed for mutable containers**  
    Files: `src/interpreter.rs`, `src/stdlib.rs`  
    Indexed assignment mutates arrays/dictionaries without checking `is_const`. Mutating extension methods also bypass it: `let xs = [1]; xs.push(2)` succeeds. Because values are shared through `Rc<RefCell<_>>`, an alias can mutate a container held by a `let` binding as well.
 
-4. **Unknown declared types are accepted when initialized**  
+3. **Unknown declared types are accepted when initialized**  
    File: `src/interpreter.rs`  
    `value_matches_type()` returns `true` for every unknown type name. `var x is MadeUp = 1` succeeds, while `var x is MadeUp` fails because no default value exists. This makes type handling inconsistent.
 
-5. **Closure/environment reference cycles leak memory**  
+4. **Closure/environment reference cycles leak memory**  
    File: `src/interpreter.rs`  
    A function stores a strong `Rc` reference to its defining environment, and that environment stores the function. Function declarations and stored lambdas can therefore form `Rc` cycles that are never released.
 
-6. **Closures created in a loop all capture the final iterator value**  
+5. **Closures created in a loop all capture the final iterator value**  
    File: `src/interpreter.rs`  
    A loop owns one scope shared by every iteration rather than creating a fresh one per iteration, and closures capture that scope by reference. `var fs = []; loop i from 0..3 { fs.push(fun() { return i }) }` leaves every closure returning `2`.
 
@@ -127,6 +127,6 @@ Date: 2026-07-23
 
 ## Verification
 
-- `cargo test --all-targets` passed: 84 passed, 0 failed (68 at the time of review, plus 16 regression tests added with the fixes above).
-- Targeted runtime checks reproduced `let` mutation, unchecked-argument panic, arithmetic-overflow panic, unknown-type acceptance, and loop-closure capture.
+- `cargo test --all-targets` passed: 86 passed, 0 failed (68 at the time of review, plus 18 regression tests added with the fixes above).
+- Targeted runtime checks reproduced `let` mutation, arithmetic-overflow panic, unknown-type acceptance, and loop-closure capture.
 - `cargo clippy --all-targets -- -D warnings` currently fails with 35 diagnostics. Most are style/idiom diagnostics; they are not counted as functional findings above.

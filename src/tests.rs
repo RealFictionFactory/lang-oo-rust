@@ -1576,3 +1576,48 @@ fn test_closed_strings_still_lex() {
     let mut lex_empty = Lexer::new("\"\"");
     assert_eq!(lex_empty.tokenize()[0], Token::String("".to_string()));
 }
+
+// Runs a snippet against a fresh environment and returns the result of the run.
+fn run_snippet(code: &str) -> Result<(), String> {
+    let mut lex = Lexer::new(code);
+    let tokens = lex.tokenize();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse_program()?;
+    let env = Environment::new();
+    Environment::run(&env, &ast)
+}
+
+// Test 85: Extension methods called with too few arguments return an interpreter
+// error instead of panicking on out-of-bounds indexing into the argument list.
+#[test]
+fn test_extension_methods_report_missing_arguments() {
+    // Each of these previously panicked with an index-out-of-bounds abort.
+    for (code, method) in [
+        ("var a = []\na.push()", "push"),
+        ("print(\"x\".contains())", "contains"),
+        ("print(\"x\".replace(\"a\"))", "replace"),
+        ("print(\"x\".split())", "split"),
+        ("print([].join())", "join"),
+        ("print([1].map())", "map"),
+        ("print([1].filter())", "filter"),
+    ] {
+        let result = run_snippet(code);
+        assert!(result.is_err(), "expected an error for `{}`", code);
+        let msg = result.unwrap_err();
+        assert!(
+            msg.contains(&format!("{}() expects", method)),
+            "unexpected error for `{}`: {}", code, msg
+        );
+    }
+}
+
+// Test 86: The same methods still work when given the right arguments.
+#[test]
+fn test_extension_methods_still_work_with_arguments() {
+    assert!(run_snippet("var a = [1]\na.push(2)").is_ok());
+    assert!(run_snippet("print(\"abc\".contains(\"b\"))").is_ok());
+    assert!(run_snippet("print(\"aaa\".replace(\"a\", \"b\"))").is_ok());
+    assert!(run_snippet("print(\"a,b\".split(\",\").join(\"-\"))").is_ok());
+    assert!(run_snippet("print([1, 2].map(fun(x) { return x * 2 }))").is_ok());
+    assert!(run_snippet("print([1, 2, 3].filter(fun(x) { return x > 1 }))").is_ok());
+}
