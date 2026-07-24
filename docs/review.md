@@ -63,47 +63,52 @@ Date: 2026-07-23
 
    Still open, and listed below: loop bodies share one scope across all iterations rather than getting a fresh one per iteration, so closures created in a loop all observe the final value of the iterator.
 
+5. **The REPL exited on the first error and kept no state between submissions** — fixed in *fix: make the REPL persistent and error-tolerant*  
+   File: `src/main.rs`  
+   `run_code()` called `std::process::exit(1)` on any parse or runtime error and built a fresh `Environment` for every submission, so one bad line ended the session and `var x = 1` was forgotten by the next `print(x)`.
+
+   | REPL session | Before | After |
+   | --- | --- | --- |
+   | `var x = 1` then `print(x)` | `Variable 'x' is not defined` | `1` |
+   | `print(undefined_var)` then `var z = 5` then `print(z + 1)` | process exits at the error | error printed, then `6` |
+
+   `run_code()` now takes the environment as a parameter and returns `Result<(), ()>` instead of exiting. `main` creates one environment for the whole REPL session and reuses it; errors are printed and the prompt returns. File mode still creates its own environment and exits non-zero when a script fails, which is the right behaviour for running a script.
+
+   Regression tests cover state persisting across submissions and a session surviving both a parse error and a runtime error. Lexer `panic!`s (issue 2 below) still abort the process before `run_code` can report them, so full REPL resilience also depends on that fix.
+
 ## Confirmed Issues
 
-1. **REPL exits on first syntax or runtime error**  
-   File: `src/main.rs`  
-   `run_code()` calls `std::process::exit(1)` on parse/runtime errors. One invalid REPL submission terminates the process instead of returning to the prompt.
-
-2. **REPL does not preserve state between submissions**  
-   File: `src/main.rs`  
-   `run_code()` creates a new `Environment` for every submission. For example, after submitting `var x = 1`, a later `print(x)` fails because `x` is no longer defined.
-
-3. **Unchecked stdlib argument indexing panics**  
+1. **Unchecked stdlib argument indexing panics**  
    File: `src/stdlib.rs`  
    Several extension methods directly access `args[0]` or `args[1]` without validating argument count. For example, `[].push()` panics instead of producing an interpreter error.
 
-4. **Lexer panics rather than reporting recoverable syntax errors**  
+2. **Lexer panics rather than reporting recoverable syntax errors**  
    File: `src/lexer.rs`  
    Unknown characters use `panic!`; numeric parsing uses `unwrap()`. An integer literal larger than `i64::MAX` aborts the process with a Rust panic.
 
-5. **Unterminated strings are accepted silently**  
+3. **Unterminated strings are accepted silently**  
    File: `src/lexer.rs`  
    The string lexer stops at EOF without checking for a closing quote. `var x = "unterminated` completes successfully instead of reporting a syntax error.
 
-6. **Integer arithmetic can panic on overflow**  
+4. **Integer arithmetic can panic on overflow**  
    File: `src/interpreter.rs`  
    Arithmetic and unary negation use unchecked `i64` operations. In debug builds, `9223372036854775807 + 1` panics instead of returning a language-level runtime error.
 
-7. **`let` protection is bypassed for mutable containers**  
+5. **`let` protection is bypassed for mutable containers**  
    Files: `src/interpreter.rs`, `src/stdlib.rs`  
    Indexed assignment mutates arrays/dictionaries without checking `is_const`. Mutating extension methods also bypass it: `let xs = [1]; xs.push(2)` succeeds. Because values are shared through `Rc<RefCell<_>>`, an alias can mutate a container held by a `let` binding as well.
 
-8. **Unknown declared types are accepted when initialized**  
+6. **Unknown declared types are accepted when initialized**  
    File: `src/interpreter.rs`  
    `value_matches_type()` returns `true` for every unknown type name. `var x is MadeUp = 1` succeeds, while `var x is MadeUp` fails because no default value exists. This makes type handling inconsistent.
 
-9. **Closure/environment reference cycles leak memory**  
+7. **Closure/environment reference cycles leak memory**  
    File: `src/interpreter.rs`  
    A function stores a strong `Rc` reference to its defining environment, and that environment stores the function. Function declarations and stored lambdas can therefore form `Rc` cycles that are never released.
 
-10. **Closures created in a loop all capture the final iterator value**  
-    File: `src/interpreter.rs`  
-    A loop owns one scope shared by every iteration rather than creating a fresh one per iteration, and closures capture that scope by reference. `var fs = []; loop i from 0..3 { fs.push(fun() { return i }) }` leaves every closure returning `2`.
+8. **Closures created in a loop all capture the final iterator value**  
+   File: `src/interpreter.rs`  
+   A loop owns one scope shared by every iteration rather than creating a fresh one per iteration, and closures capture that scope by reference. `var fs = []; loop i from 0..3 { fs.push(fun() { return i }) }` leaves every closure returning `2`.
 
 ## Performance Concerns
 
@@ -113,6 +118,6 @@ Date: 2026-07-23
 
 ## Verification
 
-- `cargo test --all-targets` passed: 76 passed, 0 failed (68 at the time of review, plus 8 regression tests added with the fixes above).
-- Targeted runtime checks reproduced REPL state loss, `let` mutation, unchecked-argument panic, literal-overflow panic, arithmetic-overflow panic, unterminated-string acceptance, unknown-type acceptance, and loop-closure capture.
+- `cargo test --all-targets` passed: 78 passed, 0 failed (68 at the time of review, plus 10 regression tests added with the fixes above).
+- Targeted runtime checks reproduced `let` mutation, unchecked-argument panic, literal-overflow panic, arithmetic-overflow panic, unterminated-string acceptance, unknown-type acceptance, and loop-closure capture.
 - `cargo clippy --all-targets -- -D warnings` currently fails with 35 diagnostics. Most are style/idiom diagnostics; they are not counted as functional findings above.

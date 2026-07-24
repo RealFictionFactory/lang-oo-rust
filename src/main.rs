@@ -3,6 +3,8 @@
 use std::io::{self, BufRead, Write};
 use std::env;
 use std::fs;
+use std::rc::Rc;
+use std::cell::RefCell;
 
 mod lexer;
 mod parser;
@@ -15,28 +17,27 @@ use lexer::Lexer;
 use parser::Parser;
 use interpreter::Environment;
 
-/// Executes the provided source code string.
+/// Executes the provided source code string in the given environment.
 /// This function handles the entire pipeline: Lexing -> Parsing -> Evaluation.
-/// Any syntax or runtime errors are printed to standard error.
-fn run_code(code: &str) {
+/// Errors are printed to standard error and returned as `Err(())` so the caller
+/// decides what to do with them: file mode aborts, the REPL keeps going.
+/// The environment is passed in and reused so state persists across REPL submissions.
+fn run_code(env: &Rc<RefCell<Environment>>, code: &str) -> Result<(), ()> {
     let mut lex = Lexer::new(code);
     let tokens = lex.tokenize();
 
     let mut parser = Parser::new(tokens);
     match parser.parse_program() {
-        Ok(ast) => {
-            let interpreter = Environment::new();
-            match Environment::run(&interpreter, &ast) {
-                Ok(_) => {}
-                Err(err) => {
-                    eprintln!("Runtime error: {}", err);
-                    std::process::exit(1);
-                }
+        Ok(ast) => match Environment::run(env, &ast) {
+            Ok(_) => Ok(()),
+            Err(err) => {
+                eprintln!("Runtime error: {}", err);
+                Err(())
             }
-        }
+        },
         Err(err) => {
             eprintln!("Syntax error: {}", err);
-            std::process::exit(1);
+            Err(())
         }
     }
 }
@@ -51,19 +52,28 @@ fn main() {
     // File mode: e.g., cargo run -- script.oo
     if args.len() > 1 {
         let filename = &args[1];
-        
+
         match fs::read_to_string(filename) {
             Ok(code) => {
-                run_code(&code);
+                let env = Environment::new();
+                // A script that fails to lex, parse or run exits non-zero.
+                if run_code(&env, &code).is_err() {
+                    std::process::exit(1);
+                }
             }
             Err(e) => {
                 eprintln!("Failed to read file '{}': {}", filename, e);
+                std::process::exit(1);
             }
         }
     } else {
         // Interactive mode (REPL)
         let stdin = io::stdin();
         let mut stdout = io::stdout();
+
+        // One environment for the whole session, so variables and functions
+        // defined in one submission are still available in the next.
+        let env = Environment::new();
 
         loop {
             let mut input = String::new();
@@ -97,7 +107,7 @@ fn main() {
                 // Handle Ctrl+D (EOF) - exit the program
                 if bytes == 0 {
                     if !input.is_empty() {
-                        run_code(&input);
+                        let _ = run_code(&env, &input);
                     }
                     println!();
                     return;
@@ -107,9 +117,10 @@ fn main() {
                 is_first_line = false;
             }
 
-            // If anything was entered before the dot, run it
+            // If anything was entered before the dot, run it. Errors are reported
+            // but do not end the session — the prompt returns for the next input.
             if !input.trim().is_empty() {
-                run_code(&input);
+                let _ = run_code(&env, &input);
             }
         }
     }

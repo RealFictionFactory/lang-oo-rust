@@ -1456,3 +1456,48 @@ fn test_blocks_can_mutate_enclosing_bindings() {
     assert_eq!(Environment::get(&env, "total").unwrap().value, crate::interpreter::Value::Number(6));
     assert_eq!(Environment::get(&env, "seen").unwrap().value, crate::interpreter::Value::Str("12".to_string()));
 }
+
+// Parses and runs one submission against an existing environment, mirroring what the
+// REPL's run_code() does: it returns whether the submission succeeded but keeps the
+// environment intact either way. Lexer panics are out of scope here (see the lexer
+// findings); this covers parse and runtime errors.
+fn repl_submit(env: &std::rc::Rc<std::cell::RefCell<Environment>>, code: &str) -> bool {
+    let mut lex = Lexer::new(code);
+    let tokens = lex.tokenize();
+    let mut parser = Parser::new(tokens);
+    match parser.parse_program() {
+        Ok(ast) => Environment::run(env, &ast).is_ok(),
+        Err(_) => false,
+    }
+}
+
+// Test 77: REPL state persists across submissions (issue: a fresh Environment per line).
+#[test]
+fn test_repl_state_persists_across_submissions() {
+    let env = Environment::new();
+
+    assert!(repl_submit(&env, "var x = 1"));
+    // A later submission can still see `x` and define things in terms of it.
+    assert!(repl_submit(&env, "var y = x + 41"));
+
+    assert_eq!(Environment::get(&env, "x").unwrap().value, crate::interpreter::Value::Number(1));
+    assert_eq!(Environment::get(&env, "y").unwrap().value, crate::interpreter::Value::Number(42));
+}
+
+// Test 78: A failing submission does not end the session or discard prior state
+// (issue: run_code() called process::exit on any error).
+#[test]
+fn test_repl_survives_errors_and_keeps_state() {
+    let env = Environment::new();
+
+    assert!(repl_submit(&env, "var kept = 7"));
+    // A runtime error: undefined variable.
+    assert!(!repl_submit(&env, "print(undefined_var)"));
+    // A parse error: malformed statement.
+    assert!(!repl_submit(&env, "var = = ="));
+    // Prior state is intact and new submissions still work afterwards.
+    assert!(repl_submit(&env, "var after = kept + 1"));
+
+    assert_eq!(Environment::get(&env, "kept").unwrap().value, crate::interpreter::Value::Number(7));
+    assert_eq!(Environment::get(&env, "after").unwrap().value, crate::interpreter::Value::Number(8));
+}
