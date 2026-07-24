@@ -1501,3 +1501,51 @@ fn test_repl_survives_errors_and_keeps_state() {
     assert_eq!(Environment::get(&env, "kept").unwrap().value, crate::interpreter::Value::Number(7));
     assert_eq!(Environment::get(&env, "after").unwrap().value, crate::interpreter::Value::Number(8));
 }
+
+// Test 79: An unknown character is a recoverable lexing error, not a panic.
+// The lexer emits Token::Error and the parser surfaces its message.
+#[test]
+fn test_unknown_character_is_reported_not_panicked() {
+    let mut lex = Lexer::new("var x = @");
+    let tokens = lex.tokenize();
+    // The illegal character becomes an Error token rather than aborting tokenize().
+    assert!(tokens.iter().any(|t| matches!(t, Token::Error(_))));
+
+    let mut parser = Parser::new(tokens);
+    let result = parser.parse_program();
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("Unknown character"));
+}
+
+// Test 80: A number literal that does not fit i64 is reported, not panicked.
+#[test]
+fn test_out_of_range_number_literal_is_reported() {
+    let mut lex = Lexer::new("print(99999999999999999999)");
+    let tokens = lex.tokenize();
+    assert!(tokens.iter().any(|t| matches!(t, Token::Error(_))));
+
+    let mut parser = Parser::new(tokens);
+    let result = parser.parse_program();
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("out of range"));
+}
+
+// Test 81: A valid i64 at the boundary still lexes as a Number, not an error.
+#[test]
+fn test_max_i64_literal_still_lexes() {
+    let mut lex = Lexer::new("9223372036854775807");
+    let tokens = lex.tokenize();
+    assert_eq!(tokens[0], Token::Number(9223372036854775807));
+    assert!(!tokens.iter().any(|t| matches!(t, Token::Error(_))));
+}
+
+// Test 82: A lone '!' is reported rather than panicking (it is only valid as '!=').
+#[test]
+fn test_bare_bang_is_reported_not_panicked() {
+    let mut lex = Lexer::new("var y = 1\n!");
+    let tokens = lex.tokenize();
+    assert!(tokens.iter().any(|t| matches!(t, Token::Error(_))));
+
+    let mut parser = Parser::new(tokens);
+    assert!(parser.parse_program().is_err());
+}

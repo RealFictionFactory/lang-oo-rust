@@ -767,6 +767,9 @@ impl Parser {
                 Expr::Array(elements)
             }
 
+            // A lexing error reaches the parser as a token; surface its message.
+            Some(Token::Error(msg)) => return Err(msg),
+
             _ => return Err("Unexpected token in expression".to_string()),
         };
 

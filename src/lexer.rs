@@ -69,6 +69,11 @@ pub enum Token {
     // Special
     NewLine,   // \n - end of line, important when there are no semicolons
     Eof,       // end of file
+
+    // A lexing error, carrying its message. Emitted instead of panicking so that an
+    // unknown character or an out-of-range number literal becomes a recoverable syntax
+    // error: the parser surfaces the message and the REPL keeps running.
+    Error(String),
 }
 
 /// The Lexer (or Tokenizer) converts raw source code text into a sequence of Tokens.
@@ -160,13 +165,19 @@ impl Lexer {
                     }
                 }
                 
-                // Parse as Decimal if it contains a dot, otherwise Number
+                // Parse as Decimal if it contains a dot, otherwise Number.
+                // A literal that does not fit its type (e.g. larger than i64::MAX)
+                // becomes an Error token rather than aborting the process.
                 if num_str.contains('.') {
-                    let num = num_str.parse::<f64>().unwrap();
-                    tokens.push(Token::Decimal(num));
+                    match num_str.parse::<f64>() {
+                        Ok(num) => tokens.push(Token::Decimal(num)),
+                        Err(_) => tokens.push(Token::Error(format!("Invalid decimal literal '{}'", num_str))),
+                    }
                 } else {
-                    let num = num_str.parse::<i64>().unwrap();
-                    tokens.push(Token::Number(num));
+                    match num_str.parse::<i64>() {
+                        Ok(num) => tokens.push(Token::Number(num)),
+                        Err(_) => tokens.push(Token::Error(format!("Number literal '{}' is out of range for Number (i64)", num_str))),
+                    }
                 }
                 continue;
             }
@@ -274,7 +285,7 @@ impl Lexer {
                         self.next_char();
                         tokens.push(Token::NotEq);
                     } else {
-                        panic!("Unknown character: ! (did you mean '!='?)");
+                        tokens.push(Token::Error("Unknown character: '!' (did you mean '!='?)".to_string()));
                     }
                 }
                 '+' => {
@@ -336,10 +347,10 @@ impl Lexer {
                         self.next_char();
                         tokens.push(Token::QuestionQuestion);
                     } else {
-                        panic!("Unknown character: ? (did you mean '??'?)");
+                        tokens.push(Token::Error("Unknown character: '?' (did you mean '??'?)".to_string()));
                     }
                 }
-                _ => panic!("Unknown character: {}", ch),
+                _ => tokens.push(Token::Error(format!("Unknown character: '{}'", ch))),
             }
         }
 
