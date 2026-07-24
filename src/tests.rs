@@ -1549,3 +1549,30 @@ fn test_bare_bang_is_reported_not_panicked() {
     let mut parser = Parser::new(tokens);
     assert!(parser.parse_program().is_err());
 }
+
+// Test 83: A string with no closing quote is a reported syntax error, not a
+// silently-accepted string.
+#[test]
+fn test_unterminated_string_is_reported() {
+    let mut lex = Lexer::new("var x = \"oops");
+    let tokens = lex.tokenize();
+    // No String token is produced; an Error token is.
+    assert!(!tokens.iter().any(|t| matches!(t, Token::String(_))));
+    assert!(tokens.iter().any(|t| matches!(t, Token::Error(_))));
+
+    let mut parser = Parser::new(tokens);
+    let result = parser.parse_program();
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("Unterminated string"));
+}
+
+// Test 84: A properly closed string still lexes as a single String token,
+// including the empty string.
+#[test]
+fn test_closed_strings_still_lex() {
+    let mut lex = Lexer::new("\"hello\"");
+    assert_eq!(lex.tokenize()[0], Token::String("hello".to_string()));
+
+    let mut lex_empty = Lexer::new("\"\"");
+    assert_eq!(lex_empty.tokenize()[0], Token::String("".to_string()));
+}

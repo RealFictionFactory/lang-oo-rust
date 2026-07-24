@@ -228,8 +228,10 @@ impl Lexer {
             // Strings (enclosed in double quotes)
             if ch == '"' {
                 let mut str_val = String::new();
+                let mut closed = false;
                 while let Some(next_ch) = self.next_char() {
                     if next_ch == '"' {
+                        closed = true;
                         break;
                     }
                     // Handle escape sequences
@@ -250,7 +252,13 @@ impl Lexer {
                     }
                     str_val.push(next_ch);
                 }
-                tokens.push(Token::String(str_val));
+                // Reaching EOF without a closing quote is a syntax error, not an
+                // empty-terminated string. Report it instead of accepting it silently.
+                if closed {
+                    tokens.push(Token::String(str_val));
+                } else {
+                    tokens.push(Token::Error("Unterminated string literal (missing closing '\"')".to_string()));
+                }
                 continue;
             }
 
