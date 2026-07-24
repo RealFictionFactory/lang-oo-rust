@@ -121,21 +121,28 @@ Date: 2026-07-23
 
     One case is intentionally left open, and listed below: because containers are shared by `Rc<RefCell>`, a container reached through a separate `var` alias (`let xs = [1]; var ys = xs; ys.push(2)`) is still mutable. Closing it would require either value-copy semantics on assignment or freezing the container itself, both of which conflict with the language's deliberate pass-by-reference behaviour.
 
+11. **Unknown declared types were accepted when initialized** — fixed in *fix: reject unknown type annotations at declaration*  
+    File: `src/interpreter.rs`  
+    `value_matches_type()` returned `true` for any unrecognised type name, so `var x is MadeUp = 1` was accepted while `var x is MadeUp` (no initializer) failed in `get_default_value` — the annotation was validated in one path but not the other.
+
+    | Declaration | Before | After |
+    | --- | --- | --- |
+    | `var x is MadeUp = 1` | accepted | `Unknown type: MadeUp` |
+    | `var x is MadeUp` | `Unknown type: MadeUp` | `Unknown type: MadeUp` (unchanged) |
+
+    A new `is_known_type` lists the recognised types (`Number`, `Decimal`, `String`, `Bool`, `Array`, `Dict`, `Null`); both `var` and `let` reject an unknown annotation before evaluating the initializer, so the two paths agree. `value_matches_type()`'s fallthrough is now `false` for defence, and a genuine mismatch (`var x is Number = "s"`) still reports `Type mismatch` rather than `Unknown type`.
+
 ## Confirmed Issues
 
 1. **A `let` container is still mutable through a `var` alias**  
    File: `src/interpreter.rs`  
    `let`-binding protection covers direct writes, but not a separate `var` bound to the same container: `let xs = [1]; var ys = xs; ys.push(2)` mutates `xs` to `[1, 2]`. Containers are shared through `Rc<RefCell<_>>`, so the alias holds the same underlying storage. Fully closing this needs value semantics on assignment or a freeze flag on the container, a design decision in tension with the language's reference semantics.
 
-2. **Unknown declared types are accepted when initialized**  
-   File: `src/interpreter.rs`  
-   `value_matches_type()` returns `true` for every unknown type name. `var x is MadeUp = 1` succeeds, while `var x is MadeUp` fails because no default value exists. This makes type handling inconsistent.
-
-3. **Closure/environment reference cycles leak memory**  
+2. **Closure/environment reference cycles leak memory**  
    File: `src/interpreter.rs`  
    A function stores a strong `Rc` reference to its defining environment, and that environment stores the function. Function declarations and stored lambdas can therefore form `Rc` cycles that are never released.
 
-4. **Closures created in a loop all capture the final iterator value**  
+3. **Closures created in a loop all capture the final iterator value**  
    File: `src/interpreter.rs`  
    A loop owns one scope shared by every iteration rather than creating a fresh one per iteration, and closures capture that scope by reference. `var fs = []; loop i from 0..3 { fs.push(fun() { return i }) }` leaves every closure returning `2`.
 
@@ -147,6 +154,6 @@ Date: 2026-07-23
 
 ## Verification
 
-- `cargo test --all-targets` passed: 90 passed, 0 failed (68 at the time of review, plus 22 regression tests added with the fixes above).
-- Targeted runtime checks reproduced the `var`-alias mutation hole, unknown-type acceptance, and loop-closure capture.
+- `cargo test --all-targets` passed: 92 passed, 0 failed (68 at the time of review, plus 24 regression tests added with the fixes above).
+- Targeted runtime checks reproduced the `var`-alias mutation hole and loop-closure capture.
 - `cargo clippy --all-targets -- -D warnings` currently fails with 35 diagnostics. Most are style/idiom diagnostics; they are not counted as functional findings above.

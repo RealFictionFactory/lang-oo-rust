@@ -1671,6 +1671,41 @@ fn test_let_container_allows_pure_methods() {
     assert!(run_snippet("let s = \"hi\"\nprint(s.upper())").is_ok());
 }
 
+// Test 88c: An unknown type annotation is rejected whether or not an initializer is
+// present, instead of being silently accepted when initialized.
+#[test]
+fn test_unknown_declared_type_is_rejected() {
+    for code in [
+        "var x is MadeUp = 1",
+        "var x is MadeUp",
+        "let y is Nope = 2",
+        "var f is Function = fun() { return 1 }",
+    ] {
+        let result = run_snippet(code);
+        assert!(result.is_err(), "expected unknown-type error for `{}`", code);
+        assert!(result.unwrap_err().contains("Unknown type"));
+    }
+}
+
+// Test 88d: Known type annotations still work, and a genuine mismatch is still reported.
+#[test]
+fn test_known_types_and_mismatches_still_work() {
+    // Every known type, with and without an initializer.
+    assert!(run_snippet("var a is Number = 5").is_ok());
+    assert!(run_snippet("let b is String = \"hi\"").is_ok());
+    assert!(run_snippet("var c is Decimal = 3.14").is_ok());
+    assert!(run_snippet("var d is Bool = true").is_ok());
+    assert!(run_snippet("var e is Array = [1, 2]").is_ok());
+    assert!(run_snippet("var f is Dict").is_ok());
+
+    // A real type mismatch is still an error, with the mismatch message (not "Unknown type").
+    let mismatch = run_snippet("var x is Number = \"oops\"");
+    assert!(mismatch.is_err());
+    let msg = mismatch.unwrap_err();
+    assert!(msg.contains("Type mismatch"));
+    assert!(!msg.contains("Unknown type"));
+}
+
 // Test 88: Ordinary integer arithmetic is unchanged, including division and modulo.
 #[test]
 fn test_integer_arithmetic_still_correct() {

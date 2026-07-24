@@ -246,6 +246,11 @@ impl Environment {
     fn eval_stmt(env: &Rc<RefCell<Environment>>, stmt: &Stmt) -> InterpResult<()> {
         match stmt {
             Stmt::VarDecl(name, type_name, expr) => {
+                // Reject an unknown type name up front, so `var x is MadeUp = 1` fails the
+                // same way `var x is MadeUp` already did, rather than being accepted.
+                if let Some(t) = type_name && !Self::is_known_type(t) {
+                    return Err(InterpErr::Err(format!("Unknown type: {}", t)));
+                }
                 let value = match expr {
                     Some(e) => Self::eval_expr(env, e)?,
                     None => Self::get_default_value(type_name)?,
@@ -259,6 +264,9 @@ impl Environment {
             }
 
             Stmt::Let(name, type_name, expr) => {
+                if let Some(t) = type_name && !Self::is_known_type(t) {
+                    return Err(InterpErr::Err(format!("Unknown type: {}", t)));
+                }
                 let value = match expr {
                     Some(e) => Self::eval_expr(env, e)?,
                     None => Self::get_default_value(type_name)?,
@@ -706,6 +714,15 @@ impl Environment {
         matches!(name, "push")
     }
 
+    /// The set of type names the language recognises. Declarations validate against this
+    /// so an unknown annotation is rejected instead of silently accepted.
+    fn is_known_type(type_name: &str) -> bool {
+        matches!(
+            type_name,
+            "Number" | "Decimal" | "String" | "Bool" | "Array" | "Dict" | "Null"
+        )
+    }
+
     fn value_matches_type(type_name: &str, value: &Value) -> bool {
         match type_name {
             "Number" => matches!(value, Value::Number(_)),
@@ -715,7 +732,9 @@ impl Environment {
             "Array" => matches!(value, Value::Array(_)),
             "Dict" => matches!(value, Value::Dict(_)),
             "Null" => matches!(value, Value::Null),
-            _ => true,
+            // Unknown type names are rejected at declaration by is_known_type, so anything
+            // reaching here is a name that exists but does not match the value.
+            _ => false,
         }
     }
 
