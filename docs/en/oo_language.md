@@ -14,9 +14,11 @@ The language has built-in types that can be optionally specified during declarat
 *   `Decimal` - 64-bit floating-point number.
 *   `String` - Text enclosed in double quotes.
 *   `Bool` - Logical value `true` or `false`.
-*   `Array` - Array of elements. Passed by reference (mutable inside functions).
-*   `Dict` - A collection of key-value pairs where keys are Strings. Created using braces `{"key": value}`. Passed by reference.
+*   `Array` - Array of elements. A container whose mutability is decided by how it is declared (see *Mutability and Copying* below).
+*   `Dict` - A collection of key-value pairs where keys are Strings. Created using braces `{"key": value}`. A container, like `Array`.
 *   `Null` - Absence of a value (returned e.g., by functions without a `return` statement or missing dictionary keys).
+
+`Number`, `Decimal`, `String` and `Bool` are simple value types: assigning one to another variable always copies it. `Array` and `Dict` are containers and follow the model described in *Mutability and Copying*.
 
 ## 3. Variables and Constants
 Declarations use the `var` (mutable) and `let` (immutable) keywords. You can specify the type using `is Type`, which assigns a default value (`0` for numbers, `false` for Bool, `""` for String, `[]` for Array, `{}` for Dict).
@@ -29,12 +31,62 @@ var arr is Array // defaults to []
 ```
 
 ### Runtime Type Checking
-If a type is explicitly specified, the language enforces it at runtime. Attempting to assign a value of the wrong type to a typed variable will result in a runtime error.
+If a type is explicitly specified, the language enforces it at runtime. Attempting to assign a value of the wrong type to a typed variable will result in a runtime error. Only the built-in type names are accepted; an unknown type is rejected at declaration, whether or not an initial value is given.
 
 ```text
 var age is Number = 20
 age = "twenty" // Runtime error: Type mismatch: cannot assign String to variable of type Number
+
+var x is MadeUp = 1 // Runtime error: Unknown type: MadeUp
 ```
+
+### Mutability and Copying (Value Semantics)
+Mutability is a property of the container itself, chosen by the keyword you declare it with:
+
+*   `var` produces a **mutable** container — you can `push` to it and assign to its elements.
+*   `let` produces an **immutable** container — any attempt to change it (or anything nested inside it) is a runtime error.
+
+Assignment gives each name its **own** container. Assigning one container to another variable makes an independent copy, so two variables never share the same object by accident. The keyword on the left decides the copy's mutability:
+
+```text
+let xs = [1]
+var ys = xs      // ys is an independent, MUTABLE copy of xs
+ys.push(99)
+print(xs)        // [1]      - the original is untouched
+print(ys)        // [1, 99]
+
+var a = [1]
+var b = a        // independent copy again
+b.push(9)
+print(a)         // [1]
+```
+
+To get a mutable copy of an immutable container, simply assign it to a `var`; to freeze a snapshot of a mutable one, assign it to a `let`. There is no separate copy method — the keyword is the choice.
+
+Mutating a `let` container is always an error, no matter how it is reached — directly, through another variable, or nested inside another container (immutability is **deep**):
+
+```text
+let xs = [1]
+xs.push(2)              // Runtime error: cannot push to an immutable array
+
+let grid = [[1], [2]]
+grid[0].push(9)        // Runtime error: the nested array is immutable too
+```
+
+**Function parameters are the one exception: they are shared by reference, not copied.** This is the intended way to pass a large container into a function cheaply. Immutability travels with the object: a `let` container is read-only inside the callee, while a `var` container can be modified in place and the caller sees the change.
+
+```text
+fun fill(target) { target.push(7) }
+
+var xs = [1]
+fill(xs)
+print(xs)        // [1, 7]  - a mutable container is modified in place
+
+let ys = [1]
+fill(ys)         // Runtime error: the immutable container cannot be modified inside the function
+```
+
+A container returned from a function is bound fresh at the call site, so the caller's keyword decides its mutability: `var out = f()` gives a mutable result, `let out = f()` an immutable one, regardless of how `f` built it.
 
 ## 4. Operators
 *   **Arithmetic:** `+`, `-`, `*`, `/`, `%` (modulo).
@@ -44,7 +96,11 @@ age = "twenty" // Runtime error: Type mismatch: cannot assign String to variable
 *   **Assignment:** `=`, `+=`, `-=`.
 *   **Nullish Coalescing:** `??` (returns the left value if it is not `Null`, otherwise evaluates and returns the right value).
 
+*Precedence* (loosest to tightest): `??` → `or` → `and` → equality (`==`, `!=`) → comparison (`<`, `>`, `<=`, `>=`) → `+` `-` → `*` `/` `%` → unary (`-`, `not`) → values and parentheses. So `1 < 2 + 3` means `1 < (2 + 3)`, and `true or false and false` means `true or (false and false)`.
+
 *Concatenation:* The `+` operator concatenates strings. If you concatenate a String with a Number/Decimal, the number is automatically converted to text.
+
+*Integer overflow:* Integer (`Number`) arithmetic that would exceed the 64-bit range raises a runtime error rather than silently wrapping around.
 
 ## 5. Conditional Statements (`if` / `else`)
 `if` can be used as a standard statement or as an expression that returns a value.
@@ -146,16 +202,20 @@ print(c()) // 2
 ```
 
 ## 9. Arrays
-Created using square brackets `[]`. Indexed from `0`. Passed by reference.
+Created using square brackets `[]`. Indexed from `0`. A `var` array is mutable; a `let` array is immutable (see *Mutability and Copying*). Nested indexed assignment is supported.
 
 ```text
 var arr = [1, 2, 3]
 arr[0] = 99
 print(arr[0]) // 99
+
+var grid = [[1, 2], [3, 4]]
+grid[0][1] = 99   // nested assignment
+print(grid)       // [[1, 99], [3, 4]]
 ```
 
 ## 10. Dictionaries (Maps)
-Created using braces `{}` with string keys. Accessed and mutated using square brackets `[]`. Passed by reference.
+Created using braces `{}` with string keys. Accessed and mutated using square brackets `[]`. A `var` dictionary is mutable; a `let` dictionary is immutable (see *Mutability and Copying*).
 
 Accessing a missing key returns `Null` instead of throwing an error. You can use the `??` operator to provide a fallback value.
 
@@ -217,7 +277,7 @@ Extension methods can be chained to values.
 *   `.contains(element)` - Returns `true` if the Array/String contains the given element/substring.
 
 **Array Methods:**
-*   `.push(element)` - Adds an element to the end of the array (mutates the array in place).
+*   `.push(element)` - Adds an element to the end of the array (mutates the array in place). Only allowed on a mutable (`var`) array; calling it on an immutable (`let`) array is a runtime error. Extension methods also validate their argument count and report an error instead of failing when called with too few arguments.
 *   `.join(separator)` - Joins all elements of the array into a single String, separated by the given separator.
 *   `.map(fun)` - Returns a new array by applying the given function (lambda) to each element.
 *   `.filter(fun)` - Returns a new array containing only elements for which the function returned `true`.

@@ -132,17 +132,32 @@ Date: 2026-07-23
 
     A new `is_known_type` lists the recognised types (`Number`, `Decimal`, `String`, `Bool`, `Array`, `Dict`, `Null`); both `var` and `let` reject an unknown annotation before evaluating the initializer, so the two paths agree. `value_matches_type()`'s fallthrough is now `false` for defence, and a genuine mismatch (`var x is Number = "s"`) still reports `Type mismatch` rather than `Unknown type`.
 
+12. **Container mutability is now a property of the object; assignment copies** — fixed in *fix: value semantics for containers with object-level immutability*  
+    Files: `src/interpreter.rs`, `src/stdlib.rs`, `src/modules/io.rs`  
+    Previously `let` protected only the *name*, so a `var` alias bound to the same `Rc<RefCell>` could mutate a `let` container: `let xs = [1]; var ys = xs; ys.push(2)` changed `xs`. This replaced the binding-level `let` checks (which only ever covered direct writes) with a whole-model change agreed with the language owner:
+
+    - **Immutability lives on the object.** `Array`/`Dict` each carry an `immutable` flag (`Rc<Cell<bool>>`) that travels with the value. `push` and indexed assignment check that flag, so a `let` container is read-only however it is reached — directly, through an alias, through a function parameter, or nested inside another container.
+    - **`=` gives the name its own container (value semantics).** `deep_bind` deep-copies a container that is reached through an alias and tags every level with the binding's mutability (`let` → immutable, `var` → mutable). A uniquely-owned value (a fresh literal, or a value returned from a function) is retagged in place instead of copied, so there is no needless allocation. Two named variables can never share one object.
+    - **Function parameters are the one exception — they share by reference.** Immutability travels with the object, so a `let` array passed to a function is read-only inside it, while a `var` array is still mutable in place (the intentional ad-table pattern). This is the only place two names touch one object.
+    - **`.toMutable()`/`.toImmutable()` were considered and dropped:** the `let`/`var` keyword already is the explicit mutable/immutable choice, so `var b = a` yields a mutable copy and `let b = a` an immutable one.
+
+    | Program | Before | After |
+    | --- | --- | --- |
+    | `let xs=[1]; var ys=xs; ys.push(99)` | `xs` becomes `[1, 99]` | `xs` stays `[1]`, `ys` is `[1, 99]` |
+    | `var a=[1]; var b=a; b.push(9)` | `a` becomes `[1, 9]` | `a` stays `[1]`, `b` is `[1, 9]` |
+    | `fun f(a){a.push(7)}; let xs=[1]; f(xs)` | mutates `xs` | error — immutability travels |
+    | `fun f(a){a.push(7)}; var xs=[1]; f(xs)` | `xs` becomes `[1, 7]` | `xs` becomes `[1, 7]` (unchanged) |
+    | `let m={"a":[1]}; m["a"].push(2)` | mutates | error — deep |
+
+    A side benefit: because indexed assignment now evaluates its target as a value, nested writes like `m[0][1] = 99` work. Scalars (Number/String/Bool) are unchanged value types; the flag applies only to Array/Dict.
+
 ## Confirmed Issues
 
-1. **A `let` container is still mutable through a `var` alias**  
-   File: `src/interpreter.rs`  
-   `let`-binding protection covers direct writes, but not a separate `var` bound to the same container: `let xs = [1]; var ys = xs; ys.push(2)` mutates `xs` to `[1, 2]`. Containers are shared through `Rc<RefCell<_>>`, so the alias holds the same underlying storage. Fully closing this needs value semantics on assignment or a freeze flag on the container, a design decision in tension with the language's reference semantics.
-
-2. **Closure/environment reference cycles leak memory**  
+1. **Closure/environment reference cycles leak memory**  
    File: `src/interpreter.rs`  
    A function stores a strong `Rc` reference to its defining environment, and that environment stores the function. Function declarations and stored lambdas can therefore form `Rc` cycles that are never released.
 
-3. **Closures created in a loop all capture the final iterator value**  
+2. **Closures created in a loop all capture the final iterator value**  
    File: `src/interpreter.rs`  
    A loop owns one scope shared by every iteration rather than creating a fresh one per iteration, and closures capture that scope by reference. `var fs = []; loop i from 0..3 { fs.push(fun() { return i }) }` leaves every closure returning `2`.
 
@@ -154,6 +169,6 @@ Date: 2026-07-23
 
 ## Verification
 
-- `cargo test --all-targets` passed: 92 passed, 0 failed (68 at the time of review, plus 24 regression tests added with the fixes above).
-- Targeted runtime checks reproduced the `var`-alias mutation hole and loop-closure capture.
+- `cargo test --all-targets` passed: 99 passed, 0 failed (68 at the time of review, plus 31 regression tests added with the fixes above).
+- Targeted runtime checks reproduced loop-closure capture.
 - `cargo clippy --all-targets -- -D warnings` currently fails with 35 diagnostics. Most are style/idiom diagnostics; they are not counted as functional findings above.

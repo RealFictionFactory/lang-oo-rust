@@ -14,9 +14,11 @@ Język posiada wbudowane typy, które można podawać opcjonalnie przy deklaracj
 *   `Decimal` - liczba zmiennoprzecinkowa (64-bitowa).
 *   `String` - ciąg znaków w podwójnych cudzysłowach.
 *   `Bool` - wartość logiczna `true` lub `false`.
-*   `Array` - tablica elementów. Przekazywana przez referencję (mutowalna wewnątrz funkcji).
-*   `Dict` - kolekcja par klucz-wartość, gdzie kluczami są Stringi. Tworzona przy użyciu klamr `{"klucz": wartość}`. Przekazywana przez referencję.
+*   `Array` - tablica elementów. Kontener, którego mutowalność zależy od sposobu deklaracji (patrz *Mutowalność i kopiowanie* poniżej).
+*   `Dict` - kolekcja par klucz-wartość, gdzie kluczami są Stringi. Tworzona przy użyciu klamr `{"klucz": wartość}`. Kontener, tak jak `Array`.
 *   `Null` - brak wartości (zwracany np. przez funkcje bez instrukcji `return` lub przy brakującym kluczu w słowniku).
+
+`Number`, `Decimal`, `String` i `Bool` to proste typy wartościowe: przypisanie takiej wartości do innej zmiennej zawsze ją kopiuje. `Array` i `Dict` to kontenery i podlegają modelowi opisanemu w sekcji *Mutowalność i kopiowanie*.
 
 ## 3. Zmienne i Stałe
 Deklaracja używa słów kluczowych `var` (zmienne) i `let` (stałe). Można podać typ używając `is Type`, co nada domyślną wartość (`0` dla liczb, `false` dla Bool, `""` dla String, `[]` dla Array, `{}` dla Dict).
@@ -29,21 +31,76 @@ var arr is Array // domyślnie []
 ```
 
 ### Sprawdzanie typów w czasie wykonania (Runtime Type Checking)
-Jeśli typ zostanie jawnie określony, język egzekwuje go w czasie wykonania. Próba przypisania wartości niewłaściwego typu do otypowanej zmiennej skończy się błędem w czasie wykonania.
+Jeśli typ zostanie jawnie określony, język egzekwuje go w czasie wykonania. Próba przypisania wartości niewłaściwego typu do otypowanej zmiennej skończy się błędem w czasie wykonania. Akceptowane są wyłącznie wbudowane nazwy typów; nieznany typ jest odrzucany już przy deklaracji, niezależnie od tego, czy podano wartość początkową.
 
 ```text
 var age is Number = 20
 age = "dwadzieścia" // Błąd wykonania: Type mismatch: cannot assign String to variable of type Number
+
+var x is MadeUp = 1 // Błąd wykonania: Unknown type: MadeUp
 ```
+
+### Mutowalność i kopiowanie (semantyka wartości)
+Mutowalność jest cechą samego kontenera, wybieraną słowem kluczowym użytym do jego deklaracji:
+
+*   `var` tworzy kontener **mutowalny** — można do niego dodawać elementy (`push`) i przypisywać do jego elementów.
+*   `let` tworzy kontener **niemutowalny** — każda próba zmiany jego (lub czegokolwiek zagnieżdżonego w środku) kończy się błędem wykonania.
+
+Przypisanie daje każdej nazwie **własny** kontener. Przypisanie jednego kontenera do innej zmiennej tworzy niezależną kopię, więc dwie zmienne nigdy przypadkiem nie współdzielą tego samego obiektu. Mutowalność kopii określa słowo kluczowe po lewej stronie:
+
+```text
+let xs = [1]
+var ys = xs      // ys to niezależna, MUTOWALNA kopia xs
+ys.push(99)
+print(xs)        // [1]      - oryginał nietknięty
+print(ys)        // [1, 99]
+
+var a = [1]
+var b = a        // ponownie niezależna kopia
+b.push(9)
+print(a)         // [1]
+```
+
+Aby uzyskać mutowalną kopię niemutowalnego kontenera, po prostu przypisz go do `var`; aby zamrozić migawkę mutowalnego, przypisz go do `let`. Nie ma osobnej metody kopiującej — wyborem jest słowo kluczowe.
+
+Zmiana kontenera `let` jest zawsze błędem, niezależnie od tego, jak się do niego dostajemy — bezpośrednio, przez inną zmienną czy zagnieżdżony w innym kontenerze (niemutowalność jest **głęboka**):
+
+```text
+let xs = [1]
+xs.push(2)              // Błąd wykonania: nie można dodać do niemutowalnej tablicy
+
+let grid = [[1], [2]]
+grid[0].push(9)        // Błąd wykonania: zagnieżdżona tablica też jest niemutowalna
+```
+
+**Parametry funkcji są jedynym wyjątkiem: są współdzielone przez referencję, a nie kopiowane.** To zamierzony sposób taniego przekazania dużego kontenera do funkcji. Niemutowalność podróżuje wraz z obiektem: kontener `let` jest tylko do odczytu wewnątrz funkcji, natomiast kontener `var` można modyfikować w miejscu, a wywołujący widzi zmianę.
+
+```text
+fun fill(target) { target.push(7) }
+
+var xs = [1]
+fill(xs)
+print(xs)        // [1, 7]  - mutowalny kontener zmodyfikowany w miejscu
+
+let ys = [1]
+fill(ys)         // Błąd wykonania: niemutowalnego kontenera nie można zmienić wewnątrz funkcji
+```
+
+Kontener zwrócony z funkcji jest wiązany na nowo w miejscu wywołania, więc jego mutowalność określa słowo kluczowe wywołującego: `var out = f()` daje wynik mutowalny, `let out = f()` niemutowalny, niezależnie od tego, jak `f` go zbudowała.
 
 ## 4. Operatory
 *   **Matematyczne:** `+`, `-`, `*`, `/`, `%` (modulo).
 *   **Jednoargumentowe:** `-` (negacja liczby, np. `-5`), `not` (negacja logiczna, np. `not true`).
 *   **Logiczne:** `and`, `or` (obsługują tzw. *short-circuit evaluation*, czyli nie ewaluują prawej strony, jeśli wynik jest już znany).
 *   **Porównania:** `==`, `!=`, `>`, `<`, `>=`, `<=`.
-*   **Przypisania:** `=`, `+=`, `-=`. (zwraca lewą stronę, jeśli nie jest `Null`, w przeciwnym razie ewaluuje i zwraca prawą).
+*   **Przypisania:** `=`, `+=`, `-=`.
+*   **Operator Nullish Coalescing:** `??` (zwraca lewą stronę, jeśli nie jest `Null`, w przeciwnym razie ewaluuje i zwraca prawą).
+
+*Priorytety* (od najsłabszego do najsilniejszego): `??` → `or` → `and` → równość (`==`, `!=`) → porównania (`<`, `>`, `<=`, `>=`) → `+` `-` → `*` `/` `%` → operatory jednoargumentowe (`-`, `not`) → wartości i nawiasy. Zatem `1 < 2 + 3` znaczy `1 < (2 + 3)`, a `true or false and false` znaczy `true or (false and false)`.
 
 *Konkatenacja:* Operator `+` łączy stringi. Jeśli połączysz String z Number/Decimal, liczba zostanie automatycznie zamieniona na tekst.
+
+*Przepełnienie liczb całkowitych:* Arytmetyka liczb całkowitych (`Number`) wykraczająca poza zakres 64-bitowy zgłasza błąd wykonania, zamiast po cichu „zawijać się" (wrap-around).
 
 ## 5. Instrukcje Warunkowe (`if` / `else`)
 `if` może być użyte jako standardowa instrukcja lub jako wyrażenie, które zwraca wartość.
@@ -145,16 +202,20 @@ print(c()) // 2
 ```
 
 ## 9. Tablice
-Tworzone nawiasami kwadratowymi `[]`. Indeksowane od `0`. Przekazywane przez referencję.
+Tworzone nawiasami kwadratowymi `[]`. Indeksowane od `0`. Tablica `var` jest mutowalna, tablica `let` — niemutowalna (patrz *Mutowalność i kopiowanie*). Zagnieżdżone przypisanie indeksowane jest obsługiwane.
 
 ```text
 var arr = [1, 2, 3]
 arr[0] = 99
 print(arr[0]) // 99
+
+var grid = [[1, 2], [3, 4]]
+grid[0][1] = 99   // zagnieżdżone przypisanie
+print(grid)       // [[1, 99], [3, 4]]
 ```
 
 ## 10. Słowniki (Mapy)
-Tworzone przy użyciu klamr `{}` z kluczami typu String. Dostęp do wartości i ich modyfikacja odbywa się za pomocą nawiasów kwadratowych `[]`. Przekazywane przez referencję.
+Tworzone przy użyciu klamr `{}` z kluczami typu String. Dostęp do wartości i ich modyfikacja odbywa się za pomocą nawiasów kwadratowych `[]`. Słownik `var` jest mutowalny, słownik `let` — niemutowalny (patrz *Mutowalność i kopiowanie*).
 
 Odwołanie do nieistniejącego klucza zwraca `Null` zamiast wyrzucać błąd. Można użyć operatora `??`, aby podać wartość domyślną.
 
@@ -216,7 +277,7 @@ Metody rozszerzające mogą być łańcuchowane (wywoływane jedna po drugiej).
 *   `.contains(element)` - Zwraca `true`, jeśli Tablica/String zawiera dany element/podciąg.
 
 **Metody Array:**
-*   `.push(element)` - Dodaje element na koniec tablicy (mutuje tablicę w miejscu).
+*   `.push(element)` - Dodaje element na koniec tablicy (mutuje tablicę w miejscu). Dozwolone tylko dla tablicy mutowalnej (`var`); wywołanie na tablicy niemutowalnej (`let`) to błąd wykonania. Metody rozszerzające sprawdzają też liczbę argumentów i zgłaszają błąd zamiast się wywalać, gdy podano ich za mało.
 *   `.join(separator)` - Łączy wszystkie elementy tablicy w jeden String, oddzielając je podanym separatorem.
 *   `.map(fun)` - Zwraca nową tablicę, stosując podaną funkcję (lambdę) do każdego elementu.
 *   `.filter(fun)` - Zwraca nową tablicę, zawierającą tylko te elementy, dla których funkcja zwróciła `true`.

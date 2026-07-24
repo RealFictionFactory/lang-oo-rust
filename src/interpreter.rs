@@ -1,6 +1,6 @@
 // src/interpreter.rs
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 use crate::ast::{BinOp, Expr, Stmt, UnOp};
@@ -9,14 +9,21 @@ use crate::ast::{BinOp, Expr, Stmt, UnOp};
 pub type BuiltinFn = fn(Vec<Value>) -> InterpResult<Value>;
 
 /// Represents all possible runtime values in the language.
+///
+/// Arrays and dictionaries are reference-counted so they can be shared across a function
+/// call boundary (the one place two names touch one object). Each carries an `immutable`
+/// flag that travels with the object: `let` produces immutable containers, `var` mutable
+/// ones, and every mutating operation checks this flag rather than the binding it was
+/// reached through. Assignment elsewhere makes an independent copy (see `deep_bind`), so
+/// aliasing between named variables cannot happen and a `let` container stays frozen.
 #[derive(Debug, Clone)]
 pub enum Value {
     Number(i64),
     Decimal(f64),
     Str(String),
     Bool(bool),
-    Array(Rc<RefCell<Vec<Value>>>),             // Shared mutable array
-    Dict(Rc<RefCell<HashMap<String, Value>>>),  // Shared mutable dict
+    Array(Rc<RefCell<Vec<Value>>>, Rc<Cell<bool>>),             // items, immutable flag
+    Dict(Rc<RefCell<HashMap<String, Value>>>, Rc<Cell<bool>>),  // items, immutable flag
     // Stores Rc<RefCell<Environment>> to allow closures to share state with their definition scope.
     // Parameters and body are shared via Rc: Value is cloned on every variable lookup, and
     // deep-copying the body there made each call cost O(size of the function's source).
@@ -26,6 +33,7 @@ pub enum Value {
 }
 
 // Manual implementation of PartialEq that ignores function pointers and environments.
+// Container equality is by contents; the mutability flag is not part of a value's identity.
 impl PartialEq for Value {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
@@ -33,20 +41,32 @@ impl PartialEq for Value {
             (Value::Decimal(a), Value::Decimal(b)) => a == b,
             (Value::Str(a), Value::Str(b)) => a == b,
             (Value::Bool(a), Value::Bool(b)) => a == b,
-            (Value::Array(a), Value::Array(b)) => {
+            (Value::Array(a, _), Value::Array(b, _)) => {
                 let a_ref = a.borrow();
                 let b_ref = b.borrow();
                 a_ref.len() == b_ref.len() && a_ref.iter().zip(b_ref.iter()).all(|(x, y)| x == y)
             }
-            (Value::Dict(a), Value::Dict(b)) => {
+            (Value::Dict(a, _), Value::Dict(b, _)) => {
                 let a_ref = a.borrow();
                 let b_ref = b.borrow();
                 a_ref.len() == b_ref.len() && a_ref.iter().all(|(k, v)| b_ref.get(k).map_or(false, |bv| v == bv))
             }
             (Value::Null, Value::Null) => true,
             (Value::Function(a, b, _), Value::Function(c, d, _)) => a == c && b == d,
-            _ => false, 
+            _ => false,
         }
+    }
+}
+
+impl Value {
+    /// Builds an array value with the given items and mutability flag.
+    pub fn array(items: Vec<Value>, immutable: bool) -> Value {
+        Value::Array(Rc::new(RefCell::new(items)), Rc::new(Cell::new(immutable)))
+    }
+
+    /// Builds a dictionary value with the given entries and mutability flag.
+    pub fn dict(entries: HashMap<String, Value>, immutable: bool) -> Value {
+        Value::Dict(Rc::new(RefCell::new(entries)), Rc::new(Cell::new(immutable)))
     }
 }
 
@@ -61,12 +81,12 @@ impl Value {
             }
             Value::Str(s) => s.clone(),
             Value::Bool(b) => b.to_string(),
-            Value::Array(arr) => {
+            Value::Array(arr, _) => {
                 let arr_ref = arr.borrow();
                 let formatted: Vec<String> = arr_ref.iter().map(|v| v.to_string()).collect();
                 format!("[{}]", formatted.join(", "))
             }
-            Value::Dict(map) => {
+            Value::Dict(map, _) => {
                 let map_ref = map.borrow();
                 let formatted: Vec<String> = map_ref.iter()
                     .map(|(k, v)| format!("\"{}\": {}", k, v.to_string()))
@@ -260,6 +280,8 @@ impl Environment {
                         return Err(InterpErr::Err(format!("Type mismatch: expected '{}', got {}", t, Self::value_type_name(&value))));
                     }
                 }
+                // `var` gives the name its own, mutable container (value semantics).
+                let value = Self::deep_bind(value, false);
                 Self::insert(env, name.clone(), VarInfo { value, is_const: false, type_name: type_name.clone() });
             }
 
@@ -276,11 +298,14 @@ impl Environment {
                         return Err(InterpErr::Err(format!("Type mismatch: expected '{}', got {}", t, Self::value_type_name(&value))));
                     }
                 }
+                // `let` gives the name its own, immutable container (deep).
+                let value = Self::deep_bind(value, true);
                 Self::insert(env, name.clone(), VarInfo { value, is_const: true, type_name: type_name.clone() });
             }
 
             Stmt::Assign(name, expr) => {
-                let value = Self::eval_expr(env, expr)?;
+                // Reassigning a `var` gives it a fresh, mutable container of its own.
+                let value = Self::deep_bind(Self::eval_expr(env, expr)?, false);
                 Self::assign_var(env, name, value)?;
             }
 
@@ -313,37 +338,35 @@ impl Environment {
             }
 
             Stmt::IndexAssign(container_expr, idx_expr, val_expr) => {
-                let val = Self::eval_expr(env, val_expr)?;
+                // Evaluate the container itself: this shares its Rc, so writing through it
+                // reaches the same object the name holds, and it naturally supports nested
+                // targets like `m[0][1] = x`. Immutability is checked on the object, not the
+                // binding, so a `let` container is protected however it is reached.
+                let container = Self::eval_expr(env, container_expr)?;
                 let idx_val = Self::eval_expr(env, idx_expr)?;
-                if let Expr::Variable(name) = &**container_expr {
-                    if let Some(var_env) = Self::find_env_with_var(env, name) {
-                        let mut env_mut = var_env.borrow_mut();
-                        if let Some(info) = env_mut.vars.get_mut(name) {
-                            // A `let` binding protects its container from indexed writes.
-                            if info.is_const {
-                                return Err(InterpErr::Err(format!("Cannot modify '{}': it is declared with 'let'", name)));
-                            }
-                            match (&mut info.value, idx_val) {
-                                (Value::Array(arr), Value::Number(idx)) => {
-                                    let mut arr_mut = arr.borrow_mut();
-                                    if idx < 0 || idx as usize >= arr_mut.len() {
-                                        return Err(InterpErr::Err(format!("Array index out of bounds: {}", idx)));
-                                    }
-                                    arr_mut[idx as usize] = val;
-                                    return Ok(());
-                                }
-                                (Value::Dict(map), Value::Str(key)) => {
-                                    let mut map_mut = map.borrow_mut();
-                                    map_mut.insert(key, val);
-                                    return Ok(());
-                                }
-                                _ => return Err(InterpErr::Err(format!("'{}' is not an array or dict", name).to_string()))
-                            }
+                let val = Self::eval_expr(env, val_expr)?;
+                return match (container, idx_val) {
+                    (Value::Array(arr, immutable), Value::Number(idx)) => {
+                        if immutable.get() {
+                            return Err(InterpErr::Err("Cannot modify an immutable array (declared with 'let')".to_string()));
                         }
+                        let mut arr_mut = arr.borrow_mut();
+                        if idx < 0 || idx as usize >= arr_mut.len() {
+                            return Err(InterpErr::Err(format!("Array index out of bounds: {}", idx)));
+                        }
+                        // The stored element is an independent, mutable copy (value semantics).
+                        arr_mut[idx as usize] = Self::deep_bind(val, false);
+                        Ok(())
                     }
-                    return Err(InterpErr::Err(format!("Variable '{}' not defined", name).to_string()));
+                    (Value::Dict(map, immutable), Value::Str(key)) => {
+                        if immutable.get() {
+                            return Err(InterpErr::Err("Cannot modify an immutable dictionary (declared with 'let')".to_string()));
+                        }
+                        map.borrow_mut().insert(key, Self::deep_bind(val, false));
+                        Ok(())
+                    }
+                    _ => Err(InterpErr::Err("Can only index-assign arrays with numbers or dicts with strings".to_string())),
                 }
-                return Err(InterpErr::Err("Invalid assignment target".to_string()))
             }
 
             Stmt::FuncDecl(name, params, body) => {
@@ -395,7 +418,7 @@ impl Environment {
 
             Stmt::LoopIn(var_name, iterable_expr, body) => {
                 let iterable_val = Self::eval_expr(env, iterable_expr)?;
-                if let Value::Array(arr) = iterable_val {
+                if let Value::Array(arr, _) = iterable_val {
                     let arr_clone = arr.borrow().clone(); // Clone elements to avoid borrow issues during loop
                     // Loop-owned scope, as in the range loop above.
                     let loop_env = Self::with_parent(Rc::clone(env));
@@ -562,7 +585,7 @@ impl Environment {
             Expr::Array(elements) => {
                 let mut vals = Vec::new();
                 for e in elements { vals.push(Self::eval_expr(env, e)?); }
-                Ok(Value::Array(Rc::new(RefCell::new(vals))))
+                Ok(Value::array(vals, false))
             }
 
             Expr::Dict(pairs) => {
@@ -573,21 +596,21 @@ impl Environment {
                     if let Value::Str(key) = k_val { map.insert(key, v_val); } 
                     else { return Err(InterpErr::Err("Dictionary keys must evaluate to String".to_string())); }
                 }
-                Ok(Value::Dict(Rc::new(RefCell::new(map)))) // ZMIANA
+                Ok(Value::dict(map, false))
             }
 
             Expr::IndexGet(container_expr, idx_expr) => {
                 let container_val = Self::eval_expr(env, container_expr)?;
                 let idx_val = Self::eval_expr(env, idx_expr)?;
                 match (container_val, idx_val) {
-                    (Value::Array(arr), Value::Number(idx)) => {
+                    (Value::Array(arr, _), Value::Number(idx)) => {
                         let arr_ref = arr.borrow();
                         if idx < 0 || idx as usize >= arr_ref.len() {
                             return Err(InterpErr::Err(format!("Array index out of bounds: {}", idx)));
                         }
                         Ok(arr_ref[idx as usize].clone())
                     }
-                    (Value::Dict(map), Value::Str(key)) => {
+                    (Value::Dict(map, _), Value::Str(key)) => {
                         let map_ref = map.borrow();
                         Ok(map_ref.get(&key).cloned().unwrap_or(Value::Null))
                     }
@@ -608,18 +631,11 @@ impl Environment {
                 let mut arg_vals = Vec::new();
                 for arg in args { arg_vals.push(Self::eval_expr(env, arg)?); }
 
-                // A method that mutates its receiver in place (e.g. push) is refused when
-                // the receiver is a `let` binding, mirroring the indexed-write protection.
-                // This guards the direct case `let xs = [1]; xs.push(2)`. A container reached
-                // through a separate `var` alias is still shared and remains mutable.
-                if Self::is_mutating_method(method_name)
-                    && let Expr::Variable(name) = &**obj_expr
-                    && Self::get(env, name).is_some_and(|info| info.is_const)
-                {
-                    return Err(InterpErr::Err(format!("Cannot call '{}' on '{}': it is declared with 'let'", method_name, name)));
-                }
-
                 let obj_val = Self::eval_expr(env, obj_expr)?;
+
+                // Mutating methods such as push check the receiver object's own immutable
+                // flag (see ext_push), so a `let` container is protected no matter how it is
+                // reached — directly, through a parameter, or nested inside another container.
 
                 // The rest are non-mutating methods (pure functions).
                 // We look them up in the registered extensions!
@@ -632,7 +648,7 @@ impl Environment {
                 }
 
                 match &obj_val {
-                    Value::Array(_) => return Err(InterpErr::Err(format!("Method '{}' not supported on Array", method_name))),
+                    Value::Array(_, _) => return Err(InterpErr::Err(format!("Method '{}' not supported on Array", method_name))),
                     Value::Str(_) => return Err(InterpErr::Err(format!("Method '{}' not supported on String", method_name))),
                     _ => return Err(InterpErr::Err(format!("Method '{}' not supported on this type", method_name))),
                 }
@@ -698,8 +714,8 @@ impl Environment {
                 "Decimal" => Ok(Value::Decimal(0.0)),
                 "String" => Ok(Value::Str("".to_string())),
                 "Bool" => Ok(Value::Bool(false)),
-                "Array" => Ok(Value::Array(Rc::new(RefCell::new(Vec::new())))),
-                "Dict" => Ok(Value::Dict(Rc::new(RefCell::new(HashMap::new())))),
+                "Array" => Ok(Value::array(Vec::new(), false)),
+                "Dict" => Ok(Value::dict(HashMap::new(), false)),
                 "Null" => Ok(Value::Null),
                 _ => Err(InterpErr::Err(format!("Unknown type: {}", t))),
             },
@@ -707,11 +723,53 @@ impl Environment {
         }
     }
 
-    /// Extension methods that mutate their receiver in place, rather than returning a
-    /// new value. Kept as an explicit list so `let` bindings can refuse them; every other
-    /// registered extension (map, filter, upper, split, …) is pure and always allowed.
-    fn is_mutating_method(name: &str) -> bool {
-        matches!(name, "push")
+    /// Produces an independent value to bind to a name or store in a container slot, with
+    /// the given mutability. Containers reached through an alias are deep-copied so no two
+    /// names share one object; a uniquely-owned container (a fresh literal, or a value
+    /// returned from a function) is retagged in place to avoid a needless copy. Every level
+    /// is tagged with `immutable`, giving deep immutability. Scalars and functions are
+    /// returned unchanged. Function parameters deliberately bypass this — they share.
+    pub fn deep_bind(value: Value, immutable: bool) -> Value {
+        match value {
+            Value::Array(arr, flag) => {
+                if Rc::strong_count(&arr) == 1 {
+                    {
+                        let mut items = arr.borrow_mut();
+                        for e in items.iter_mut() {
+                            let taken = std::mem::replace(e, Value::Null);
+                            *e = Self::deep_bind(taken, immutable);
+                        }
+                    }
+                    flag.set(immutable);
+                    Value::Array(arr, flag)
+                } else {
+                    let items: Vec<Value> = arr.borrow().iter()
+                        .map(|e| Self::deep_bind(e.clone(), immutable))
+                        .collect();
+                    Value::array(items, immutable)
+                }
+            }
+            Value::Dict(map, flag) => {
+                if Rc::strong_count(&map) == 1 {
+                    {
+                        let keys: Vec<String> = map.borrow().keys().cloned().collect();
+                        for k in keys {
+                            let taken = map.borrow_mut().remove(&k).unwrap();
+                            map.borrow_mut().insert(k, Self::deep_bind(taken, immutable));
+                        }
+                    }
+                    flag.set(immutable);
+                    Value::Dict(map, flag)
+                } else {
+                    let mut new_map = HashMap::new();
+                    for (k, v) in map.borrow().iter() {
+                        new_map.insert(k.clone(), Self::deep_bind(v.clone(), immutable));
+                    }
+                    Value::dict(new_map, immutable)
+                }
+            }
+            other => other,
+        }
     }
 
     /// The set of type names the language recognises. Declarations validate against this
@@ -729,8 +787,8 @@ impl Environment {
             "Decimal" => matches!(value, Value::Decimal(_)),
             "String" => matches!(value, Value::Str(_)),
             "Bool" => matches!(value, Value::Bool(_)),
-            "Array" => matches!(value, Value::Array(_)),
-            "Dict" => matches!(value, Value::Dict(_)),
+            "Array" => matches!(value, Value::Array(_, _)),
+            "Dict" => matches!(value, Value::Dict(_, _)),
             "Null" => matches!(value, Value::Null),
             // Unknown type names are rejected at declaration by is_known_type, so anything
             // reaching here is a name that exists but does not match the value.
@@ -744,8 +802,8 @@ impl Environment {
             Value::Decimal(_) => "Decimal",
             Value::Str(_) => "String",
             Value::Bool(_) => "Bool",
-            Value::Array(_) => "Array",
-            Value::Dict(_) => "Dict",
+            Value::Array(_, _) => "Array",
+            Value::Dict(_, _) => "Dict",
             Value::Function(_, _, _) | Value::Builtin(_) => "Function",
             Value::Null => "Null",
         }
@@ -757,10 +815,10 @@ impl Environment {
             Value::Number(n) => *n != 0,
             Value::Decimal(n) => *n != 0.0,
             Value::Str(s) => !s.is_empty(),
-            Value::Array(arr) => !arr.borrow().is_empty(),
+            Value::Array(arr, _) => !arr.borrow().is_empty(),
             Value::Null => false,
             Value::Function(_, _, _) | Value::Builtin(_) => true,
-            Value::Dict(map) => !map.borrow().is_empty(),
+            Value::Dict(map, _) => !map.borrow().is_empty(),
         }
     }
 

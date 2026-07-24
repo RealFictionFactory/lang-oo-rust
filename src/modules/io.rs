@@ -31,7 +31,7 @@ pub fn register(env: &Rc<RefCell<Environment>>) {
 
 /// Helper to extract the file path from the Dict-based File object.
 fn get_file_path(receiver: &Value) -> Result<String, InterpErr> {
-    if let Value::Dict(map) = receiver {
+    if let Value::Dict(map, _) = receiver {
         let map_ref = map.borrow();
         if let Some(Value::Str(path)) = map_ref.get("path") {
             return Ok(path.clone());
@@ -46,7 +46,7 @@ fn builtin_file(args: Vec<Value>) -> InterpResult<Value> {
         let mut map = HashMap::new();
         map.insert("__type__".to_string(), Value::Str("File".to_string()));
         map.insert("path".to_string(), Value::Str(path.clone()));
-        Ok(Value::Dict(Rc::new(RefCell::new(map))))
+        Ok(Value::dict(map, false))
     } else {
         Err(InterpErr::Err("file() requires a String path argument".to_string()))
     }

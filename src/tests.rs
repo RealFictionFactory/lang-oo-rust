@@ -362,7 +362,7 @@ fn test_interpreter_array_mutation() {
     Environment::run(&env, &ast).unwrap();
     
     let arr_val = &Environment::get(&env, "arr").unwrap().value;
-    if let crate::interpreter::Value::Array(arr) = arr_val {
+    if let crate::interpreter::Value::Array(arr, _) = arr_val {
         assert_eq!(arr.borrow()[1], crate::interpreter::Value::Number(99));
     } else {
         panic!("Variable arr should be an array");
@@ -578,7 +578,7 @@ fn test_method_calls() {
     Environment::run(&env, &ast).unwrap();
     
     let arr_val = &Environment::get(&env, "arr").unwrap().value;
-    if let crate::interpreter::Value::Array(arr) = arr_val {
+    if let crate::interpreter::Value::Array(arr, _) = arr_val {
         assert_eq!(arr.borrow().len(), 3);
     } else {
         panic!("Variable arr should be an array");
@@ -835,7 +835,7 @@ fn test_dictionary_mutation() {
     Environment::run(&env, &ast).unwrap();
     
     let config_val = &Environment::get(&env, "config").unwrap().value;
-    if let crate::interpreter::Value::Dict(map) = config_val {
+    if let crate::interpreter::Value::Dict(map, _) = config_val {
         assert_eq!(map.borrow().get("debug").unwrap(), &crate::interpreter::Value::Bool(true));
     } else {
         panic!("Variable config should be a dictionary");
@@ -962,7 +962,7 @@ fn test_type_check_default_dict() {
     Environment::run(&env, &ast).unwrap();
     
     let d_val = &Environment::get(&env, "d").unwrap().value;
-    if let crate::interpreter::Value::Dict(map) = d_val {
+    if let crate::interpreter::Value::Dict(map, _) = d_val {
         assert_eq!(map.borrow().get("key").unwrap(), &crate::interpreter::Value::Str("value".to_string()));
     } else {
         panic!("Variable d should be a Dict");
@@ -1728,4 +1728,148 @@ fn test_integer_arithmetic_still_correct() {
     assert_eq!(Environment::get(&env, "c").unwrap().value, crate::interpreter::Value::Number(3));
     assert_eq!(Environment::get(&env, "d").unwrap().value, crate::interpreter::Value::Number(1));
     assert_eq!(Environment::get(&env, "e").unwrap().value, crate::interpreter::Value::Number(-5));
+}
+
+// Helper: run a snippet and return the environment so tests can inspect final values.
+fn run_env(code: &str) -> std::rc::Rc<std::cell::RefCell<Environment>> {
+    let mut lex = Lexer::new(code);
+    let tokens = lex.tokenize();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse_program().unwrap();
+    let env = Environment::new();
+    Environment::run(&env, &ast).unwrap();
+    env
+}
+
+// Helper: assert a variable holds an array equal to the given numbers.
+fn assert_number_array(env: &std::rc::Rc<std::cell::RefCell<Environment>>, name: &str, expected: &[i64]) {
+    let v = Environment::get(env, name).unwrap().value;
+    if let crate::interpreter::Value::Array(arr, _) = v {
+        let got: Vec<i64> = arr.borrow().iter().map(|e| match e {
+            crate::interpreter::Value::Number(n) => *n,
+            other => panic!("expected Number, got {:?}", other),
+        }).collect();
+        assert_eq!(got, expected, "array `{}` mismatch", name);
+    } else {
+        panic!("`{}` is not an array", name);
+    }
+}
+
+// Test 89: Assigning a `let` container into a `var` makes an independent copy, so mutating
+// the copy leaves the original untouched. This is the alias hole the earlier binding-level
+// fix could not close.
+#[test]
+fn test_var_copy_of_let_is_independent() {
+    let env = run_env("
+        let xs = [1]
+        var ys = xs
+        ys.push(99)
+    ");
+    assert_number_array(&env, "xs", &[1]);
+    assert_number_array(&env, "ys", &[1, 99]);
+}
+
+// Test 90: The same holds for two `var` containers, and for indexed writes.
+#[test]
+fn test_var_to_var_assignment_is_independent() {
+    let env = run_env("
+        var a = [1, 2]
+        var b = a
+        b[0] = 99
+        b.push(3)
+    ");
+    assert_number_array(&env, "a", &[1, 2]);
+    assert_number_array(&env, "b", &[99, 2, 3]);
+}
+
+// Test 91: Immutability travels with a container across a function-parameter boundary
+// (parameters share by reference): a `let` array cannot be mutated inside the callee.
+#[test]
+fn test_immutability_travels_into_function() {
+    let code = "
+        fun f(a) { a.push(7) }
+        let xs = [1]
+        f(xs)
+    ";
+    let mut lex = Lexer::new(code);
+    let tokens = lex.tokenize();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse_program().unwrap();
+    let env = Environment::new();
+    let result = Environment::run(&env, &ast);
+    assert!(result.is_err(), "mutating a let array inside a function should fail");
+    assert!(result.unwrap_err().contains("immutable"));
+}
+
+// Test 92: A mutable (var) array passed to a function is still shared and mutated in place
+// — the intentional pass-by-reference case.
+#[test]
+fn test_mutable_container_shares_through_function() {
+    let env = run_env("
+        fun f(a) { a.push(7) }
+        var xs = [1]
+        f(xs)
+    ");
+    assert_number_array(&env, "xs", &[1, 7]);
+}
+
+// Test 93: Immutability is deep — a container nested inside a `let` container is frozen too.
+#[test]
+fn test_deep_immutability() {
+    for code in [
+        "let m = [[1], [2]]\nm[0].push(9)",
+        "let d = {\"a\": [1]}\nd[\"a\"].push(9)",
+    ] {
+        let mut lex = Lexer::new(code);
+        let tokens = lex.tokenize();
+        let mut parser = Parser::new(tokens);
+        let ast = parser.parse_program().unwrap();
+        let env = Environment::new();
+        let result = Environment::run(&env, &ast);
+        assert!(result.is_err(), "deep mutation should fail for `{}`", code);
+        assert!(result.unwrap_err().contains("immutable"));
+    }
+}
+
+// Test 94: Embedding an existing container in a new literal copies it, so later changes to
+// the original do not leak into the new structure.
+#[test]
+fn test_literal_embedding_copies_containers() {
+    let env = run_env("
+        var a = [1]
+        var outer = [a]
+        a.push(2)
+    ");
+    // outer holds a copy of a's earlier state, unaffected by the later push.
+    let v = Environment::get(&env, "outer").unwrap().value;
+    if let crate::interpreter::Value::Array(arr, _) = v {
+        assert_eq!(arr.borrow().len(), 1);
+        if let crate::interpreter::Value::Array(inner, _) = &arr.borrow()[0] {
+            assert_eq!(inner.borrow().len(), 1, "embedded container should be an independent copy");
+        } else {
+            panic!("outer[0] is not an array");
+        }
+    } else {
+        panic!("outer is not an array");
+    }
+    assert_number_array(&env, "a", &[1, 2]);
+}
+
+// Test 95: Nested indexed assignment now works on a mutable container (a side effect of
+// evaluating the assignment target as a value).
+#[test]
+fn test_nested_index_assignment() {
+    let env = run_env("
+        var m = [[1, 2], [3, 4]]
+        m[0][1] = 99
+    ");
+    let v = Environment::get(&env, "m").unwrap().value;
+    if let crate::interpreter::Value::Array(arr, _) = v {
+        if let crate::interpreter::Value::Array(row0, _) = &arr.borrow()[0] {
+            let got: Vec<i64> = row0.borrow().iter().map(|e| match e {
+                crate::interpreter::Value::Number(n) => *n, _ => panic!(),
+            }).collect();
+            assert_eq!(got, vec![1, 99]);
+        } else { panic!("m[0] not an array"); }
+    } else { panic!("m not an array"); }
 }

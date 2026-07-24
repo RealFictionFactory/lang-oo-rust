@@ -166,16 +166,22 @@ fn ext_lower(receiver: Value, _args: Vec<Value>) -> InterpResult<Value> {
 fn ext_length(receiver: Value, _args: Vec<Value>) -> InterpResult<Value> {
     match receiver {
         Value::Str(s) => Ok(Value::Number(s.chars().count() as i64)),
-        Value::Array(arr) => Ok(Value::Number(arr.borrow().len() as i64)),
+        Value::Array(arr, _) => Ok(Value::Number(arr.borrow().len() as i64)),
         _ => Err(InterpErr::Err("length() is only supported on String and Array".to_string())),
     }
 }
 
 /// Adds an element to the end of the array (mutates the array in place via Rc<RefCell>).
-fn ext_push(receiver: Value, args: Vec<Value>) -> InterpResult<Value> {
+/// Refused on an immutable array; the pushed element is stored as an independent, mutable
+/// copy (value semantics), matching how indexed assignment stores its value.
+fn ext_push(receiver: Value, mut args: Vec<Value>) -> InterpResult<Value> {
     check_arity("push", &args, 1)?;
-    if let Value::Array(arr) = receiver {
-        arr.borrow_mut().push(args[0].clone());
+    if let Value::Array(arr, immutable) = receiver {
+        if immutable.get() {
+            return Err(InterpErr::Err("Cannot push to an immutable array (declared with 'let')".to_string()));
+        }
+        let element = Environment::deep_bind(args.remove(0), false);
+        arr.borrow_mut().push(element);
         Ok(Value::Null)
     } else {
         Err(InterpErr::Err("push() can only be called on Array".to_string()))
@@ -202,7 +208,7 @@ fn ext_contains(receiver: Value, args: Vec<Value>) -> InterpResult<Value> {
                 Err(InterpErr::Err("contains() on String requires a String argument".to_string()))
             }
         }
-        Value::Array(arr) => {
+        Value::Array(arr, _) => {
             let target = &args[0];
             let arr_ref = arr.borrow();
             // Use our custom PartialEq to find the element
@@ -230,7 +236,7 @@ fn ext_split(receiver: Value, args: Vec<Value>) -> InterpResult<Value> {
             .map(|part| Value::Str(part.to_string()))
             .collect();
         // Don't forget to wrap the Vec in Rc<RefCell> for the Array type!
-        Ok(Value::Array(Rc::new(RefCell::new(arr))))
+        Ok(Value::array(arr, false))
     } else {
         Err(InterpErr::Err("split() requires a String receiver and a String argument".to_string()))
     }
@@ -239,7 +245,7 @@ fn ext_split(receiver: Value, args: Vec<Value>) -> InterpResult<Value> {
 /// Joins all elements of an Array into a single String, separated by the given separator.
 fn ext_join(receiver: Value, args: Vec<Value>) -> InterpResult<Value> {
     check_arity("join", &args, 1)?;
-    if let (Value::Array(arr), Value::Str(sep)) = (receiver, &args[0]) {
+    if let (Value::Array(arr, _), Value::Str(sep)) = (receiver, &args[0]) {
         let arr_ref = arr.borrow();
         let parts: Vec<String> = arr_ref.iter().map(|v| v.to_string()).collect();
         Ok(Value::Str(parts.join(sep)))
@@ -251,14 +257,14 @@ fn ext_join(receiver: Value, args: Vec<Value>) -> InterpResult<Value> {
 /// Applies a given function to each element of the array, returning a new array.
 fn ext_map(receiver: Value, args: Vec<Value>) -> InterpResult<Value> {
     check_arity("map", &args, 1)?;
-    if let (Value::Array(arr), func) = (receiver, args[0].clone()) {
+    if let (Value::Array(arr, _), func) = (receiver, args[0].clone()) {
         let arr_ref = arr.borrow().clone(); // Clone elements to avoid borrow conflicts during execution
         let mut new_arr = Vec::new();
         for item in arr_ref {
             let result = crate::interpreter::Environment::execute_function(func.clone(), vec![item])?;
             new_arr.push(result);
         }
-        Ok(Value::Array(Rc::new(RefCell::new(new_arr))))
+        Ok(Value::array(new_arr, false))
     } else {
         Err(InterpErr::Err("map() requires an Array receiver and a function argument".to_string()))
     }
@@ -267,7 +273,7 @@ fn ext_map(receiver: Value, args: Vec<Value>) -> InterpResult<Value> {
 /// Filters the array, keeping only elements for which the function returns true.
 fn ext_filter(receiver: Value, args: Vec<Value>) -> InterpResult<Value> {
     check_arity("filter", &args, 1)?;
-    if let (Value::Array(arr), func) = (receiver, args[0].clone()) {
+    if let (Value::Array(arr, _), func) = (receiver, args[0].clone()) {
         let arr_ref = arr.borrow().clone();
         let mut new_arr = Vec::new();
         for item in arr_ref {
@@ -277,7 +283,7 @@ fn ext_filter(receiver: Value, args: Vec<Value>) -> InterpResult<Value> {
                 new_arr.push(item);
             }
         }
-        Ok(Value::Array(Rc::new(RefCell::new(new_arr))))
+        Ok(Value::array(new_arr, false))
     } else {
         Err(InterpErr::Err("filter() requires an Array receiver and a function argument".to_string()))
     }
@@ -286,7 +292,7 @@ fn ext_filter(receiver: Value, args: Vec<Value>) -> InterpResult<Value> {
 /// args() -> returns an Array of Strings containing the command-line arguments.
 fn builtin_args(_args: Vec<Value>) -> InterpResult<Value> {
     let args: Vec<Value> = env::args().map(|s| Value::Str(s)).collect();
-    Ok(Value::Array(Rc::new(RefCell::new(args))))
+    Ok(Value::array(args, false))
 }
 
 /// exit(code) -> terminates the program immediately with the given exit code.
