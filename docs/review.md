@@ -97,25 +97,32 @@ Date: 2026-07-23
    File: `src/stdlib.rs`  
    Seven extension methods (`push`, `contains`, `replace`, `split`, `join`, `map`, `filter`) indexed `args[0]`/`args[1]` without checking the argument count, so `[].push()` or `"x".replace("a")` aborted the process with an out-of-bounds panic. A new `check_arity(method, args, expected)` helper is called at the top of each; a short call now returns e.g. `push() expects 1 argument(s), got 0` as a normal interpreter error. `io.rs` already used `args.get()` and was unaffected.
 
+9. **Integer arithmetic overflowed unchecked** — fixed in *fix: return a runtime error on integer overflow*  
+   File: `src/interpreter.rs`  
+   `+`, `-`, `*`, `/`, `%` on `Number` and unary negation used raw `i64` operators, so `9223372036854775807 + 1` panicked in debug builds and silently wrapped to a negative number in release builds — a wrong answer either way. `i64::MIN / -1` and negating `i64::MIN` overflow too, past the existing divide-by-zero guard.
+
+   | Expression | Before (release) | After |
+   | --- | --- | --- |
+   | `9223372036854775807 + 1` | `-9223372036854775808` | `Runtime error: integer overflow in 9223372036854775807 + 1` |
+   | `i64::MIN / -1` | panic | reported overflow error |
+
+   Each operator now uses its `checked_*` form and returns a runtime error when it overflows, so the result is either correct or a catchable error, never a wrap or a panic. Ordinary arithmetic is unchanged. (The message carries its own `Runtime error:` prefix to match the adjacent divide-by-zero messages, which double up with the caller's prefix — a pre-existing cosmetic wart left as is.)
+
 ## Confirmed Issues
 
-1. **Integer arithmetic can panic on overflow**  
-   File: `src/interpreter.rs`  
-   Arithmetic and unary negation use unchecked `i64` operations. In debug builds, `9223372036854775807 + 1` panics instead of returning a language-level runtime error.
-
-2. **`let` protection is bypassed for mutable containers**  
+1. **`let` protection is bypassed for mutable containers**  
    Files: `src/interpreter.rs`, `src/stdlib.rs`  
    Indexed assignment mutates arrays/dictionaries without checking `is_const`. Mutating extension methods also bypass it: `let xs = [1]; xs.push(2)` succeeds. Because values are shared through `Rc<RefCell<_>>`, an alias can mutate a container held by a `let` binding as well.
 
-3. **Unknown declared types are accepted when initialized**  
+2. **Unknown declared types are accepted when initialized**  
    File: `src/interpreter.rs`  
    `value_matches_type()` returns `true` for every unknown type name. `var x is MadeUp = 1` succeeds, while `var x is MadeUp` fails because no default value exists. This makes type handling inconsistent.
 
-4. **Closure/environment reference cycles leak memory**  
+3. **Closure/environment reference cycles leak memory**  
    File: `src/interpreter.rs`  
    A function stores a strong `Rc` reference to its defining environment, and that environment stores the function. Function declarations and stored lambdas can therefore form `Rc` cycles that are never released.
 
-5. **Closures created in a loop all capture the final iterator value**  
+4. **Closures created in a loop all capture the final iterator value**  
    File: `src/interpreter.rs`  
    A loop owns one scope shared by every iteration rather than creating a fresh one per iteration, and closures capture that scope by reference. `var fs = []; loop i from 0..3 { fs.push(fun() { return i }) }` leaves every closure returning `2`.
 
@@ -127,6 +134,6 @@ Date: 2026-07-23
 
 ## Verification
 
-- `cargo test --all-targets` passed: 86 passed, 0 failed (68 at the time of review, plus 18 regression tests added with the fixes above).
-- Targeted runtime checks reproduced `let` mutation, arithmetic-overflow panic, unknown-type acceptance, and loop-closure capture.
+- `cargo test --all-targets` passed: 88 passed, 0 failed (68 at the time of review, plus 20 regression tests added with the fixes above).
+- Targeted runtime checks reproduced `let` mutation, unknown-type acceptance, and loop-closure capture.
 - `cargo clippy --all-targets -- -D warnings` currently fails with 35 diagnostics. Most are style/idiom diagnostics; they are not counted as functional findings above.

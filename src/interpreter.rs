@@ -471,16 +471,24 @@ impl Environment {
                 match (l_val, r_val) {
                     (Value::Number(l), Value::Number(r)) => {
                         match op {
-                            BinOp::Add => Ok(Value::Number(l + r)),
-                            BinOp::Subtract => Ok(Value::Number(l - r)),
-                            BinOp::Multiply => Ok(Value::Number(l * r)),
+                            // Checked arithmetic: overflow becomes a language-level runtime
+                            // error instead of a debug-build panic or a silent release wrap.
+                            BinOp::Add => l.checked_add(r).map(Value::Number)
+                                .ok_or_else(|| InterpErr::Err(format!("Runtime error: integer overflow in {} + {}", l, r))),
+                            BinOp::Subtract => l.checked_sub(r).map(Value::Number)
+                                .ok_or_else(|| InterpErr::Err(format!("Runtime error: integer overflow in {} - {}", l, r))),
+                            BinOp::Multiply => l.checked_mul(r).map(Value::Number)
+                                .ok_or_else(|| InterpErr::Err(format!("Runtime error: integer overflow in {} * {}", l, r))),
                             BinOp::Divide => {
                                 if r == 0 { return Err(InterpErr::Err("Runtime error: Division by zero!".to_string())); }
-                                Ok(Value::Number(l / r))
+                                // checked_div also catches i64::MIN / -1, which overflows.
+                                l.checked_div(r).map(Value::Number)
+                                    .ok_or_else(|| InterpErr::Err(format!("Runtime error: integer overflow in {} / {}", l, r)))
                             }
                             BinOp::Modulo => {
                                 if r == 0 { return Err(InterpErr::Err("Runtime error: Modulo by zero!".to_string())); }
-                                Ok(Value::Number(l % r))
+                                l.checked_rem(r).map(Value::Number)
+                                    .ok_or_else(|| InterpErr::Err(format!("Runtime error: integer overflow in {} % {}", l, r)))
                             }
                             BinOp::Equals => Ok(Value::Bool(l == r)),
                             BinOp::NotEquals => Ok(Value::Bool(l != r)),
@@ -529,7 +537,9 @@ impl Environment {
                 let right_val = Self::eval_expr(env, right)?;
                 match op {
                     UnOp::Negate => match right_val {
-                        Value::Number(n) => Ok(Value::Number(-n)),
+                        // checked_neg catches negating i64::MIN, which overflows.
+                        Value::Number(n) => n.checked_neg().map(Value::Number)
+                            .ok_or_else(|| InterpErr::Err(format!("Runtime error: integer overflow in -{}", n))),
                         Value::Decimal(n) => Ok(Value::Decimal(-n)),
                         _ => Err(InterpErr::Err("Unary '-' can only be applied to Number or Decimal".to_string())),
                     },

@@ -1621,3 +1621,45 @@ fn test_extension_methods_still_work_with_arguments() {
     assert!(run_snippet("print([1, 2].map(fun(x) { return x * 2 }))").is_ok());
     assert!(run_snippet("print([1, 2, 3].filter(fun(x) { return x > 1 }))").is_ok());
 }
+
+// Test 87: Integer overflow is a runtime error, not a panic (debug) or a silent
+// wraparound (release). Covers every arithmetic operator plus unary negation.
+#[test]
+fn test_integer_overflow_is_a_runtime_error() {
+    let min = "(0 - 9223372036854775807 - 1)"; // i64::MIN, no literal for it
+    for code in [
+        "print(9223372036854775807 + 1)".to_string(),
+        "print(9223372036854775807 * 2)".to_string(),
+        format!("print({} - 1)", min),
+        format!("print({} / (0 - 1))", min),   // i64::MIN / -1
+        format!("var m = {}\nprint(-m)", min), // negate i64::MIN
+    ] {
+        let result = run_snippet(&code);
+        assert!(result.is_err(), "expected overflow error for `{}`", code);
+        assert!(result.unwrap_err().contains("integer overflow"));
+    }
+}
+
+// Test 88: Ordinary integer arithmetic is unchanged, including division and modulo.
+#[test]
+fn test_integer_arithmetic_still_correct() {
+    let env = Environment::new();
+    let code = "
+        var a = 2 + 3
+        var b = 10 * 10
+        var c = 7 / 2
+        var d = 7 % 3
+        var e = -5
+    ";
+    let mut lex = Lexer::new(code);
+    let tokens = lex.tokenize();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse_program().unwrap();
+    Environment::run(&env, &ast).unwrap();
+
+    assert_eq!(Environment::get(&env, "a").unwrap().value, crate::interpreter::Value::Number(5));
+    assert_eq!(Environment::get(&env, "b").unwrap().value, crate::interpreter::Value::Number(100));
+    assert_eq!(Environment::get(&env, "c").unwrap().value, crate::interpreter::Value::Number(3));
+    assert_eq!(Environment::get(&env, "d").unwrap().value, crate::interpreter::Value::Number(1));
+    assert_eq!(Environment::get(&env, "e").unwrap().value, crate::interpreter::Value::Number(-5));
+}
