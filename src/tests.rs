@@ -1640,6 +1640,37 @@ fn test_integer_overflow_is_a_runtime_error() {
     }
 }
 
+// Test 88a: A `let`-bound container rejects in-place mutation through its own binding,
+// both indexed writes and mutating methods; a `var` container still allows both.
+#[test]
+fn test_let_container_rejects_direct_mutation() {
+    // Blocked through the let binding.
+    for code in [
+        "let xs = [1, 2]\nxs[0] = 9",
+        "let xs = [1]\nxs.push(2)",
+        "let d = {\"a\": 1}\nd[\"a\"] = 2",
+    ] {
+        let result = run_snippet(code);
+        assert!(result.is_err(), "expected let protection for `{}`", code);
+        assert!(result.unwrap_err().contains("'let'"));
+    }
+    // Allowed for a var container.
+    assert!(run_snippet("var xs = [1, 2]\nxs[0] = 9").is_ok());
+    assert!(run_snippet("var xs = [1]\nxs.push(2)").is_ok());
+    assert!(run_snippet("var d = {\"a\": 1}\nd[\"a\"] = 2").is_ok());
+}
+
+// Test 88b: Non-mutating methods on a `let` container are still allowed, since they
+// return a new value rather than changing the receiver.
+#[test]
+fn test_let_container_allows_pure_methods() {
+    assert!(run_snippet("let xs = [1, 2]\nprint(xs.map(fun(x) { return x * 2 }))").is_ok());
+    assert!(run_snippet("let xs = [1, 2, 3]\nprint(xs.filter(fun(x) { return x > 1 }))").is_ok());
+    assert!(run_snippet("let xs = [1, 2, 3]\nprint(xs.length())").is_ok());
+    assert!(run_snippet("let xs = [1, 2]\nprint(xs.contains(2))").is_ok());
+    assert!(run_snippet("let s = \"hi\"\nprint(s.upper())").is_ok());
+}
+
 // Test 88: Ordinary integer arithmetic is unchanged, including division and modulo.
 #[test]
 fn test_integer_arithmetic_still_correct() {

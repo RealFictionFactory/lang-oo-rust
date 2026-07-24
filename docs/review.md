@@ -108,11 +108,24 @@ Date: 2026-07-23
 
    Each operator now uses its `checked_*` form and returns a runtime error when it overflows, so the result is either correct or a catchable error, never a wrap or a panic. Ordinary arithmetic is unchanged. (The message carries its own `Runtime error:` prefix to match the adjacent divide-by-zero messages, which double up with the caller's prefix — a pre-existing cosmetic wart left as is.)
 
+10. **`let` protection was bypassed for mutable containers** — fixed in *fix: enforce let on indexed writes and mutating methods*  
+    File: `src/interpreter.rs`  
+    A `let`-bound array or dictionary could still be changed in place: `let xs = [1]; xs[0] = 9` and `let xs = [1]; xs.push(2)` both succeeded, because indexed assignment never checked `is_const` and a mutating method received the container's `Rc<RefCell>` with no knowledge of the binding.
+
+    | Program | Before | After |
+    | --- | --- | --- |
+    | `let xs = [1,2]; xs[0] = 9` | mutates to `[9, 2]` | `Cannot modify 'xs': it is declared with 'let'` |
+    | `let xs = [1]; xs.push(2)` | mutates to `[1, 2]` | `Cannot call 'push' on 'xs': it is declared with 'let'` |
+
+    `IndexAssign` now rejects a write when the target binding is const. `MethodCall` refuses an in-place mutating method (`is_mutating_method`, currently just `push`) on a const receiver, while pure methods like `map`, `filter`, `length` and `upper` remain allowed. `var` containers are unaffected.
+
+    One case is intentionally left open, and listed below: because containers are shared by `Rc<RefCell>`, a container reached through a separate `var` alias (`let xs = [1]; var ys = xs; ys.push(2)`) is still mutable. Closing it would require either value-copy semantics on assignment or freezing the container itself, both of which conflict with the language's deliberate pass-by-reference behaviour.
+
 ## Confirmed Issues
 
-1. **`let` protection is bypassed for mutable containers**  
-   Files: `src/interpreter.rs`, `src/stdlib.rs`  
-   Indexed assignment mutates arrays/dictionaries without checking `is_const`. Mutating extension methods also bypass it: `let xs = [1]; xs.push(2)` succeeds. Because values are shared through `Rc<RefCell<_>>`, an alias can mutate a container held by a `let` binding as well.
+1. **A `let` container is still mutable through a `var` alias**  
+   File: `src/interpreter.rs`  
+   `let`-binding protection covers direct writes, but not a separate `var` bound to the same container: `let xs = [1]; var ys = xs; ys.push(2)` mutates `xs` to `[1, 2]`. Containers are shared through `Rc<RefCell<_>>`, so the alias holds the same underlying storage. Fully closing this needs value semantics on assignment or a freeze flag on the container, a design decision in tension with the language's reference semantics.
 
 2. **Unknown declared types are accepted when initialized**  
    File: `src/interpreter.rs`  
@@ -134,6 +147,6 @@ Date: 2026-07-23
 
 ## Verification
 
-- `cargo test --all-targets` passed: 88 passed, 0 failed (68 at the time of review, plus 20 regression tests added with the fixes above).
-- Targeted runtime checks reproduced `let` mutation, unknown-type acceptance, and loop-closure capture.
+- `cargo test --all-targets` passed: 90 passed, 0 failed (68 at the time of review, plus 22 regression tests added with the fixes above).
+- Targeted runtime checks reproduced the `var`-alias mutation hole, unknown-type acceptance, and loop-closure capture.
 - `cargo clippy --all-targets -- -D warnings` currently fails with 35 diagnostics. Most are style/idiom diagnostics; they are not counted as functional findings above.

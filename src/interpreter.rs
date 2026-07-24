@@ -311,6 +311,10 @@ impl Environment {
                     if let Some(var_env) = Self::find_env_with_var(env, name) {
                         let mut env_mut = var_env.borrow_mut();
                         if let Some(info) = env_mut.vars.get_mut(name) {
+                            // A `let` binding protects its container from indexed writes.
+                            if info.is_const {
+                                return Err(InterpErr::Err(format!("Cannot modify '{}': it is declared with 'let'", name)));
+                            }
                             match (&mut info.value, idx_val) {
                                 (Value::Array(arr), Value::Number(idx)) => {
                                     let mut arr_mut = arr.borrow_mut();
@@ -596,6 +600,17 @@ impl Environment {
                 let mut arg_vals = Vec::new();
                 for arg in args { arg_vals.push(Self::eval_expr(env, arg)?); }
 
+                // A method that mutates its receiver in place (e.g. push) is refused when
+                // the receiver is a `let` binding, mirroring the indexed-write protection.
+                // This guards the direct case `let xs = [1]; xs.push(2)`. A container reached
+                // through a separate `var` alias is still shared and remains mutable.
+                if Self::is_mutating_method(method_name)
+                    && let Expr::Variable(name) = &**obj_expr
+                    && Self::get(env, name).is_some_and(|info| info.is_const)
+                {
+                    return Err(InterpErr::Err(format!("Cannot call '{}' on '{}': it is declared with 'let'", method_name, name)));
+                }
+
                 let obj_val = Self::eval_expr(env, obj_expr)?;
 
                 // The rest are non-mutating methods (pure functions).
@@ -682,6 +697,13 @@ impl Environment {
             },
             None => Err(InterpErr::Err("Cannot infer default value without type".to_string())),
         }
+    }
+
+    /// Extension methods that mutate their receiver in place, rather than returning a
+    /// new value. Kept as an explicit list so `let` bindings can refuse them; every other
+    /// registered extension (map, filter, upper, split, …) is pure and always allowed.
+    fn is_mutating_method(name: &str) -> bool {
+        matches!(name, "push")
     }
 
     fn value_matches_type(type_name: &str, value: &Value) -> bool {
