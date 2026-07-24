@@ -151,15 +151,21 @@ Date: 2026-07-23
 
     A side benefit: because indexed assignment now evaluates its target as a value, nested writes like `m[0][1] = 99` work. Scalars (Number/String/Bool) are unchanged value types; the flag applies only to Array/Dict.
 
+13. **Closures created in a loop all captured the final iterator value** — fixed in *fix: give each loop iteration its own scope*  
+    File: `src/interpreter.rs`  
+    All three loop forms reused one scope across every iteration and inserted the iterator into it, so a closure created in the body captured that shared scope by reference and observed only the last value.
+
+    | Program | Before | After |
+    | --- | --- | --- |
+    | `var fs=[]; loop i from 0..3 { fs.push(fun(){return i}) }` then `fs[0]() fs[1]() fs[2]()` | `2 2 2` | `0 1 2` |
+
+    Each iteration now runs in its own child scope holding that iteration's iterator value; a closure captures the per-iteration scope. Mutating an enclosing variable from the loop body still works because assignment walks the parent chain. Per-iteration scopes are cheap (a 1,000,000-iteration loop runs in ~0.17s).
+
 ## Confirmed Issues
 
 1. **Closure/environment reference cycles leak memory**  
    File: `src/interpreter.rs`  
    A function stores a strong `Rc` reference to its defining environment, and that environment stores the function. Function declarations and stored lambdas can therefore form `Rc` cycles that are never released.
-
-2. **Closures created in a loop all capture the final iterator value**  
-   File: `src/interpreter.rs`  
-   A loop owns one scope shared by every iteration rather than creating a fresh one per iteration, and closures capture that scope by reference. `var fs = []; loop i from 0..3 { fs.push(fun() { return i }) }` leaves every closure returning `2`.
 
 ## Performance Concerns
 
@@ -169,6 +175,5 @@ Date: 2026-07-23
 
 ## Verification
 
-- `cargo test --all-targets` passed: 99 passed, 0 failed (68 at the time of review, plus 31 regression tests added with the fixes above).
-- Targeted runtime checks reproduced loop-closure capture.
+- `cargo test --all-targets` passed: 102 passed, 0 failed (68 at the time of review, plus 34 regression tests added with the fixes above).
 - `cargo clippy --all-targets -- -D warnings` currently fails with 35 diagnostics. Most are style/idiom diagnostics; they are not counted as functional findings above.

@@ -1873,3 +1873,48 @@ fn test_nested_index_assignment() {
         } else { panic!("m[0] not an array"); }
     } else { panic!("m not an array"); }
 }
+
+// Test 96: A closure created in a range loop captures that iteration's value of the
+// iterator, not the final one. Each iteration runs in its own scope.
+#[test]
+fn test_range_loop_closures_capture_per_iteration() {
+    let env = run_env("
+        var fs = []
+        loop i from 0..3 { fs.push(fun() { return i }) }
+        var a = fs[0]()
+        var b = fs[1]()
+        var c = fs[2]()
+    ");
+    assert_eq!(Environment::get(&env, "a").unwrap().value, crate::interpreter::Value::Number(0));
+    assert_eq!(Environment::get(&env, "b").unwrap().value, crate::interpreter::Value::Number(1));
+    assert_eq!(Environment::get(&env, "c").unwrap().value, crate::interpreter::Value::Number(2));
+}
+
+// Test 97: The same holds for an array-iteration loop.
+#[test]
+fn test_loop_in_closures_capture_per_iteration() {
+    let env = run_env("
+        var gs = []
+        loop x in [10, 20, 30] { gs.push(fun() { return x }) }
+        var a = gs[0]()
+        var b = gs[1]()
+        var c = gs[2]()
+    ");
+    assert_eq!(Environment::get(&env, "a").unwrap().value, crate::interpreter::Value::Number(10));
+    assert_eq!(Environment::get(&env, "b").unwrap().value, crate::interpreter::Value::Number(20));
+    assert_eq!(Environment::get(&env, "c").unwrap().value, crate::interpreter::Value::Number(30));
+}
+
+// Test 98: Per-iteration scoping does not break mutation of an enclosing variable from
+// inside the loop body.
+#[test]
+fn test_loop_body_still_mutates_enclosing_variable() {
+    let env = run_env("
+        var total = 0
+        loop i from 1..4 { total = total + i }
+        var acc = \"\"
+        loop c in [\"a\", \"b\", \"c\"] { acc = acc + c }
+    ");
+    assert_eq!(Environment::get(&env, "total").unwrap().value, crate::interpreter::Value::Number(6));
+    assert_eq!(Environment::get(&env, "acc").unwrap().value, crate::interpreter::Value::Str("abc".to_string()));
+}

@@ -317,13 +317,14 @@ impl Environment {
                 let start_val = Self::eval_expr(env, start_expr)?;
                 let end_val = Self::eval_expr(env, end_expr)?;
                 if let (Value::Number(start), Value::Number(end)) = (start_val, end_val) {
-                    // The iterator and anything the body declares live in a loop-owned scope,
-                    // so they neither clobber nor outlive the surrounding bindings.
-                    let loop_env = Self::with_parent(Rc::clone(env));
+                    // Each iteration gets its own scope holding that iteration's value of the
+                    // iterator. A closure created in the body captures this per-iteration scope,
+                    // so it observes the value at the time it was created, not the final one.
                     'outer: for i in start..end {
-                        Self::insert(&loop_env, var_name.clone(), VarInfo { value: Value::Number(i), is_const: false, type_name: None });
+                        let iter_env = Self::with_parent(Rc::clone(env));
+                        Self::insert(&iter_env, var_name.clone(), VarInfo { value: Value::Number(i), is_const: false, type_name: None });
                         for s in body {
-                            match Self::eval_stmt(&loop_env, s) {
+                            match Self::eval_stmt(&iter_env, s) {
                                 Ok(_) => {}
                                 Err(InterpErr::Continue) => continue 'outer,
                                 Err(InterpErr::Break) => break 'outer,
@@ -392,12 +393,13 @@ impl Environment {
             }
 
             Stmt::LoopBlock(body) => {
-                // Loop-owned scope, as in the other two loop forms.
-                let loop_env = Self::with_parent(Rc::clone(env));
                 loop {
+                    // Fresh scope per iteration, as in the other two loop forms, so anything
+                    // the body declares (or a closure it creates) is per-iteration.
+                    let iter_env = Self::with_parent(Rc::clone(env));
                     let mut should_break = false;
                     for s in body {
-                        match Self::eval_stmt(&loop_env, s) {
+                        match Self::eval_stmt(&iter_env, s) {
                             Ok(_) => {}
                             Err(InterpErr::Break) => {
                                 should_break = true;
@@ -420,12 +422,12 @@ impl Environment {
                 let iterable_val = Self::eval_expr(env, iterable_expr)?;
                 if let Value::Array(arr, _) = iterable_val {
                     let arr_clone = arr.borrow().clone(); // Clone elements to avoid borrow issues during loop
-                    // Loop-owned scope, as in the range loop above.
-                    let loop_env = Self::with_parent(Rc::clone(env));
+                    // Fresh scope per iteration, as in the range loop above.
                     'outer: for element in arr_clone {
-                        Self::insert(&loop_env, var_name.clone(), VarInfo { value: element, is_const: false, type_name: None });
+                        let iter_env = Self::with_parent(Rc::clone(env));
+                        Self::insert(&iter_env, var_name.clone(), VarInfo { value: element, is_const: false, type_name: None });
                         for s in body {
-                            match Self::eval_stmt(&loop_env, s) {
+                            match Self::eval_stmt(&iter_env, s) {
                                 Ok(_) => {}
                                 Err(InterpErr::Continue) => continue 'outer,
                                 Err(InterpErr::Break) => break 'outer,
