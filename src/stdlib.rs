@@ -258,9 +258,12 @@ fn ext_join(receiver: Value, args: Vec<Value>) -> InterpResult<Value> {
 fn ext_map(receiver: Value, args: Vec<Value>) -> InterpResult<Value> {
     check_arity("map", &args, 1)?;
     if let (Value::Array(arr, _), func) = (receiver, args[0].clone()) {
-        let arr_ref = arr.borrow().clone(); // Clone elements to avoid borrow conflicts during execution
-        let mut new_arr = Vec::new();
-        for item in arr_ref {
+        // Clone one element at a time under a brief borrow, released before the callback runs,
+        // instead of duplicating the whole array up front. The length is snapshotted.
+        let len = arr.borrow().len();
+        let mut new_arr = Vec::with_capacity(len);
+        for i in 0..len {
+            let item = arr.borrow()[i].clone();
             let result = crate::interpreter::Environment::execute_function(func.clone(), vec![item])?;
             new_arr.push(result);
         }
@@ -274,9 +277,10 @@ fn ext_map(receiver: Value, args: Vec<Value>) -> InterpResult<Value> {
 fn ext_filter(receiver: Value, args: Vec<Value>) -> InterpResult<Value> {
     check_arity("filter", &args, 1)?;
     if let (Value::Array(arr, _), func) = (receiver, args[0].clone()) {
-        let arr_ref = arr.borrow().clone();
+        let len = arr.borrow().len();
         let mut new_arr = Vec::new();
-        for item in arr_ref {
+        for i in 0..len {
+            let item = arr.borrow()[i].clone();
             let result = crate::interpreter::Environment::execute_function(func.clone(), vec![item.clone()])?;
             // Use truthiness to evaluate the result
             if crate::interpreter::Environment::is_truthy_static(&result) {

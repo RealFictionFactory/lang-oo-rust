@@ -1918,3 +1918,31 @@ fn test_loop_body_still_mutates_enclosing_variable() {
     assert_eq!(Environment::get(&env, "total").unwrap().value, crate::interpreter::Value::Number(6));
     assert_eq!(Environment::get(&env, "acc").unwrap().value, crate::interpreter::Value::Str("abc".to_string()));
 }
+
+// Test 99: map/filter clone one element at a time under a brief borrow instead of copying
+// the whole array up front. A callback may read the same array without a borrow panic, and
+// the iteration length is snapshotted.
+#[test]
+fn test_map_callback_may_read_source_array() {
+    let env = run_env("
+        var xs = [1, 2, 3]
+        var lens = xs.map(fun(x) { return xs.length() })
+    ");
+    assert_number_array(&env, "lens", &[3, 3, 3]);
+}
+
+// Test 100: a loop-in body that appends to the array it is iterating still terminates,
+// visiting only the elements present when the loop started (length snapshot).
+#[test]
+fn test_loop_in_length_is_snapshotted() {
+    let env = run_env("
+        var xs = [1, 2, 3]
+        var count = 0
+        loop x in xs { count = count + 1
+            xs.push(x) }
+    ");
+    // Only the original three elements are visited...
+    assert_eq!(Environment::get(&env, "count").unwrap().value, crate::interpreter::Value::Number(3));
+    // ...but the three appended copies are present afterwards.
+    assert_number_array(&env, "xs", &[1, 2, 3, 1, 2, 3]);
+}

@@ -161,6 +161,12 @@ Date: 2026-07-23
 
     Each iteration now runs in its own child scope holding that iteration's iterator value; a closure captures the per-iteration scope. Mutating an enclosing variable from the loop body still works because assignment walks the parent chain. Per-iteration scopes are cheap (a 1,000,000-iteration loop runs in ~0.17s).
 
+14. **Iteration helpers duplicated the whole array before iterating** — fixed in *perf: iterate arrays by index instead of cloning the whole array*  
+    Files: `src/interpreter.rs`, `src/stdlib.rs`  
+    `loop in`, `.map()` and `.filter()` each did `arr.borrow().clone()` — a full duplicate of the array — before iterating, in order not to hold a `RefCell` borrow across user code. They now iterate by index, cloning one element at a time under a brief borrow that is released before the callback/body runs. The array length is snapshotted, so the observable behaviour is unchanged: a callback may still read the array being iterated without a borrow panic, and elements appended by the body are not visited.
+
+    This removes the redundant O(n) duplicate (peak memory drops by one full copy of the array) and the extra copy pass. Wall-clock time is dominated by the per-element callback/loop-body work and by the unavoidable per-element clone handed to the callback, so it is essentially unchanged — this is a memory/allocation fix, not a speed-up. The `RefCell` borrow safety that the original clone provided is preserved because no borrow is held while user code runs.
+
 ## Confirmed Issues
 
 1. **Closure/environment reference cycles leak memory**  
@@ -169,11 +175,9 @@ Date: 2026-07-23
 
 ## Performance Concerns
 
-1. **Full-array cloning in iteration helpers**  
-   Files: `src/interpreter.rs`, `src/stdlib.rs`  
-   `loop in`, `.map()`, and `.filter()` clone complete arrays before iteration. This adds O(n) time and memory overhead per operation, although it currently avoids `RefCell` borrow conflicts when callbacks mutate the array.
+*(none open)*
 
 ## Verification
 
-- `cargo test --all-targets` passed: 102 passed, 0 failed (68 at the time of review, plus 34 regression tests added with the fixes above).
+- `cargo test --all-targets` passed: 104 passed, 0 failed (68 at the time of review, plus 36 regression tests added with the fixes above).
 - `cargo clippy --all-targets -- -D warnings` currently fails with 35 diagnostics. Most are style/idiom diagnostics; they are not counted as functional findings above.

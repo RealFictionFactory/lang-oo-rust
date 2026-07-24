@@ -421,9 +421,15 @@ impl Environment {
             Stmt::LoopIn(var_name, iterable_expr, body) => {
                 let iterable_val = Self::eval_expr(env, iterable_expr)?;
                 if let Value::Array(arr, _) = iterable_val {
-                    let arr_clone = arr.borrow().clone(); // Clone elements to avoid borrow issues during loop
+                    // Iterate by index, cloning one element at a time under a brief borrow that
+                    // is released before the body runs. This avoids duplicating the whole array
+                    // up front while still not holding a borrow across user code (which could
+                    // mutate the same array). The length is snapshotted, so elements appended by
+                    // the body are not visited — matching the previous clone-up-front behaviour.
+                    let len = arr.borrow().len();
                     // Fresh scope per iteration, as in the range loop above.
-                    'outer: for element in arr_clone {
+                    'outer: for idx in 0..len {
+                        let element = arr.borrow()[idx].clone();
                         let iter_env = Self::with_parent(Rc::clone(env));
                         Self::insert(&iter_env, var_name.clone(), VarInfo { value: element, is_const: false, type_name: None });
                         for s in body {
