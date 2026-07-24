@@ -1056,47 +1056,38 @@ fn test_nullish_coalescing() {
     assert_eq!(Environment::get(&env, "age").unwrap().value, crate::interpreter::Value::Number(18));
 }
 
-// Test 60: Test lambda assignment and call
+// Test 60: A function value cannot be stored in a variable. Functions are transient
+// callbacks: `var f = fun(...)` is rejected so a function is never bound into a scope that
+// could outlive its weakly-captured defining environment.
 #[test]
-fn test_lambda_assignment() {
-    let code = "var double = fun(x) { return x * 2 }\nvar res = double(5)";
-    
-    let mut lex = Lexer::new(code);
-    let tokens = lex.tokenize();
-    let mut parser = Parser::new(tokens);
-    let ast = parser.parse_program().unwrap();
-    
-    let env = Environment::new();
-    Environment::run(&env, &ast).unwrap();
-    
-    assert_eq!(Environment::get(&env, "res").unwrap().value, crate::interpreter::Value::Number(10));
+fn test_storing_a_function_in_a_variable_is_rejected() {
+    let result = run_snippet("var double = fun(x) { return x * 2 }");
+    assert!(result.is_err(), "assigning a lambda to a variable should be rejected");
+    assert!(result.unwrap_err().contains("function cannot be assigned"));
+
+    // The same holds for aliasing a named function.
+    let alias = run_snippet("fun f() { return 1 }\nvar g = f");
+    assert!(alias.is_err());
 }
 
-// Test 61: Test closures (function capturing state)
+// Test 61: A lambda used as an immediate callback sees the local variables of the scope it
+// was written in (its lexical scope), because that scope is still alive during the call.
 #[test]
-fn test_closures() {
-    let code = "
-        fun make_counter() {
-            var count = 0
-            return fun() {
-                count = count + 1
-                return count
-            }
+fn test_lambda_callback_sees_lexical_locals() {
+    let env = run_env("
+        fun scale(values, factor) {
+            return values.map(fun(x) { return x * factor })
         }
-        var c = make_counter()
-        var r1 = c()
-        var r2 = c()
-    ";
-    let mut lex = Lexer::new(code);
-    let tokens = lex.tokenize();
-    let mut parser = Parser::new(tokens);
-    let ast = parser.parse_program().unwrap();
-    
-    let env = Environment::new();
-    Environment::run(&env, &ast).unwrap();
-    
-    assert_eq!(Environment::get(&env, "r1").unwrap().value, crate::interpreter::Value::Number(1));
-    assert_eq!(Environment::get(&env, "r2").unwrap().value, crate::interpreter::Value::Number(2));
+        var result = scale([1, 2, 3], 10)
+    ");
+    assert_number_array(&env, "result", &[10, 20, 30]);
+
+    // A global is visible too.
+    let env2 = run_env("
+        var factor = 2
+        var doubled = [1, 2, 3].map(fun(x) { return x * factor })
+    ");
+    assert_number_array(&env2, "doubled", &[2, 4, 6]);
 }
 
 // Test 62: Test passing functions as arguments (Higher-order functions)
@@ -1874,35 +1865,29 @@ fn test_nested_index_assignment() {
     } else { panic!("m not an array"); }
 }
 
-// Test 96: A closure created in a range loop captures that iteration's value of the
-// iterator, not the final one. Each iteration runs in its own scope.
+// Test 96: A lambda cannot be stored into an array — pushing a function is rejected, so the
+// "collect closures in a loop" pattern is not possible (which is exactly why the loop-closure
+// capture question does not arise: functions are transient callbacks, never stored).
 #[test]
-fn test_range_loop_closures_capture_per_iteration() {
-    let env = run_env("
+fn test_pushing_a_lambda_into_an_array_is_rejected() {
+    let result = run_snippet("
         var fs = []
         loop i from 0..3 { fs.push(fun() { return i }) }
-        var a = fs[0]()
-        var b = fs[1]()
-        var c = fs[2]()
     ");
-    assert_eq!(Environment::get(&env, "a").unwrap().value, crate::interpreter::Value::Number(0));
-    assert_eq!(Environment::get(&env, "b").unwrap().value, crate::interpreter::Value::Number(1));
-    assert_eq!(Environment::get(&env, "c").unwrap().value, crate::interpreter::Value::Number(2));
+    assert!(result.is_err(), "pushing a lambda into an array should be rejected");
+    assert!(result.unwrap_err().contains("function cannot be stored"));
 }
 
-// Test 97: The same holds for an array-iteration loop.
+// Test 97: A lambda used inline in a loop as a callback works and can see the loop variable
+// (its lexical scope is alive during the synchronous call).
 #[test]
-fn test_loop_in_closures_capture_per_iteration() {
+fn test_loop_inline_lambda_callback_sees_loop_variable() {
     let env = run_env("
-        var gs = []
-        loop x in [10, 20, 30] { gs.push(fun() { return x }) }
-        var a = gs[0]()
-        var b = gs[1]()
-        var c = gs[2]()
+        var sums = []
+        loop i from 0..3 { sums.push([1, 2].map(fun(x) { return x + i })[0]) }
     ");
-    assert_eq!(Environment::get(&env, "a").unwrap().value, crate::interpreter::Value::Number(10));
-    assert_eq!(Environment::get(&env, "b").unwrap().value, crate::interpreter::Value::Number(20));
-    assert_eq!(Environment::get(&env, "c").unwrap().value, crate::interpreter::Value::Number(30));
+    // sums[k] = 1 + k  for k in 0..3
+    assert_number_array(&env, "sums", &[1, 2, 3]);
 }
 
 // Test 98: Per-iteration scoping does not break mutation of an enclosing variable from
@@ -1945,4 +1930,28 @@ fn test_loop_in_length_is_snapshotted() {
     assert_eq!(Environment::get(&env, "count").unwrap().value, crate::interpreter::Value::Number(3));
     // ...but the three appended copies are present afterwards.
     assert_number_array(&env, "xs", &[1, 2, 3, 1, 2, 3]);
+}
+
+
+// Test: a function's captured environment is weak, so defining functions does not keep the
+// global environment (or any scope) alive. After the last external handle is dropped, a Weak
+// to the environment must fail to upgrade. This is the regression guard for the reference
+// cycle that reference counting cannot otherwise collect.
+#[test]
+fn test_environment_is_freed_after_defining_functions() {
+    use std::rc::Rc;
+    let weak;
+    {
+        let env = Environment::new();
+        let code = "
+            fun helper(x) { return x * 2 }
+            var result = [1, 2, 3].map(helper)
+        ";
+        let mut lex = Lexer::new(code);
+        let tokens = lex.tokenize();
+        let ast = Parser::new(tokens).parse_program().unwrap();
+        Environment::run(&env, &ast).unwrap();
+        weak = Rc::downgrade(&env);
+    }
+    assert!(weak.upgrade().is_none(), "the global environment leaked via a reference cycle");
 }

@@ -2,7 +2,7 @@
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 use crate::ast::{BinOp, Expr, Stmt, UnOp};
 
 /// Type alias for built-in Rust functions used in the standard library.
@@ -24,10 +24,16 @@ pub enum Value {
     Bool(bool),
     Array(Rc<RefCell<Vec<Value>>>, Rc<Cell<bool>>),             // items, immutable flag
     Dict(Rc<RefCell<HashMap<String, Value>>>, Rc<Cell<bool>>),  // items, immutable flag
-    // Stores Rc<RefCell<Environment>> to allow closures to share state with their definition scope.
+    // A function captures its defining scope by a *weak* reference, so a function value can
+    // never keep an environment alive: there is no `environment -> function -> environment`
+    // strong cycle to leak. The language keeps this sound by restricting functions to
+    // transient synchronous callbacks (they cannot be stored, returned, or reassigned), so a
+    // function is only ever called while its defining scope is still on the call stack. If a
+    // function is somehow called after its scope has been dropped, the weak upgrade fails and
+    // execute_function reports a runtime error rather than misbehaving.
     // Parameters and body are shared via Rc: Value is cloned on every variable lookup, and
     // deep-copying the body there made each call cost O(size of the function's source).
-    Function(Rc<Vec<String>>, Rc<Vec<Stmt>>, Rc<RefCell<Environment>>),
+    Function(Rc<Vec<String>>, Rc<Vec<Stmt>>, Weak<RefCell<Environment>>),
     Builtin(BuiltinFn),
     Null,
 }
@@ -158,6 +164,26 @@ impl Environment {
         }))
     }
 
+    /// True if this environment is the global (root) scope — the only place a named
+    /// function may be declared.
+    fn is_global_scope(env: &Rc<RefCell<Environment>>) -> bool {
+        env.borrow().parent.is_none()
+    }
+
+    /// Rejects storing a function value at a persistent boundary (declaration, assignment,
+    /// return, container literal, indexed write, push). Functions are transient synchronous
+    /// callbacks: keeping them out of storage is what guarantees a function is only ever
+    /// called while its (weakly captured) defining scope is still alive.
+    fn reject_stored_function(value: &Value, context: &str) -> InterpResult<()> {
+        match value {
+            Value::Function(_, _, _) | Value::Builtin(_) => Err(InterpErr::Err(format!(
+                "A function cannot be {}; functions may only be passed directly as callback arguments",
+                context
+            ))),
+            _ => Ok(()),
+        }
+    }
+
     /// Looks up an extension method by name, walking up the scope chain.
     /// Returns the function pointer by value so no borrow outlives the lookup.
     fn find_extension(env: &Rc<RefCell<Environment>>, name: &str) -> Option<ExtensionFn> {
@@ -239,7 +265,13 @@ impl Environment {
             if params.len() != args.len() {
                 return Err(InterpErr::Err(format!("Expected {} arguments, got {}", params.len(), args.len())));
             }
-            
+
+            // Upgrade the weak capture of the defining scope. In a valid program the function
+            // is a transient callback still on the call stack, so its scope is alive; if it
+            // has been dropped, fail cleanly instead of misbehaving.
+            let closure_env = closure_env.upgrade().ok_or_else(|| {
+                InterpErr::Err("Cannot call a function whose defining scope no longer exists".to_string())
+            })?;
             let local_env = Environment::with_parent(closure_env);
             for (i, param_name) in params.iter().enumerate() {
                 Self::insert(&local_env, param_name.clone(), VarInfo { value: args[i].clone(), is_const: false, type_name: None });
@@ -275,6 +307,7 @@ impl Environment {
                     Some(e) => Self::eval_expr(env, e)?,
                     None => Self::get_default_value(type_name)?,
                 };
+                Self::reject_stored_function(&value, "assigned to a variable")?;
                 if let Some(t) = type_name {
                     if !Self::value_matches_type(t, &value) {
                         return Err(InterpErr::Err(format!("Type mismatch: expected '{}', got {}", t, Self::value_type_name(&value))));
@@ -293,6 +326,7 @@ impl Environment {
                     Some(e) => Self::eval_expr(env, e)?,
                     None => Self::get_default_value(type_name)?,
                 };
+                Self::reject_stored_function(&value, "assigned to a constant")?;
                 if let Some(t) = type_name {
                     if !Self::value_matches_type(t, &value) {
                         return Err(InterpErr::Err(format!("Type mismatch: expected '{}', got {}", t, Self::value_type_name(&value))));
@@ -304,8 +338,10 @@ impl Environment {
             }
 
             Stmt::Assign(name, expr) => {
+                let value = Self::eval_expr(env, expr)?;
+                Self::reject_stored_function(&value, "assigned to a variable")?;
                 // Reassigning a `var` gives it a fresh, mutable container of its own.
-                let value = Self::deep_bind(Self::eval_expr(env, expr)?, false);
+                let value = Self::deep_bind(value, false);
                 Self::assign_var(env, name, value)?;
             }
 
@@ -346,6 +382,7 @@ impl Environment {
                 let container = Self::eval_expr(env, container_expr)?;
                 let idx_val = Self::eval_expr(env, idx_expr)?;
                 let val = Self::eval_expr(env, val_expr)?;
+                Self::reject_stored_function(&val, "stored by an indexed assignment")?;
                 return match (container, idx_val) {
                     (Value::Array(arr, immutable), Value::Number(idx)) => {
                         if immutable.get() {
@@ -371,9 +408,15 @@ impl Environment {
             }
 
             Stmt::FuncDecl(name, params, body) => {
-                // Capture the current environment by cloning the Rc (cheap, shared ownership).
-                // Params and body are Rc too, so this clones three pointers, not the AST.
-                let func_val = Value::Function(Rc::clone(params), Rc::clone(body), Rc::clone(env));
+                // Named functions may only be declared at the top level. A nested declaration
+                // would bind a function into a scope that ends, which the transient-callback
+                // model disallows.
+                if !Self::is_global_scope(env) {
+                    return Err(InterpErr::Err("Functions can only be declared at the top level".to_string()));
+                }
+                // Capture the defining scope weakly, so the function value never keeps it
+                // alive. Params and body are Rc, so this clones three pointers, not the AST.
+                let func_val = Value::Function(Rc::clone(params), Rc::clone(body), Rc::downgrade(env));
                 Self::insert(env, name.clone(), VarInfo { value: func_val, is_const: true, type_name: None });
             }
 
@@ -382,6 +425,7 @@ impl Environment {
                     Some(e) => Self::eval_expr(env, e)?,
                     None => Value::Null,
                 };
+                Self::reject_stored_function(&val, "returned from a function")?;
                 return Err(InterpErr::Return(val));
             }
 
@@ -475,8 +519,10 @@ impl Environment {
             }
 
             Expr::Lambda(params, body) => {
-                // Closures capture the Rc to the current environment
-                Ok(Value::Function(Rc::clone(params), Rc::clone(body), Rc::clone(env)))
+                // Lambdas capture their lexical scope weakly: they see enclosing locals while
+                // that scope is alive (a synchronous callback always is), but never keep it
+                // alive, so no reference cycle can form.
+                Ok(Value::Function(Rc::clone(params), Rc::clone(body), Rc::downgrade(env)))
             }
 
             Expr::Binary(left, op, right) => {
@@ -592,7 +638,11 @@ impl Environment {
 
             Expr::Array(elements) => {
                 let mut vals = Vec::new();
-                for e in elements { vals.push(Self::eval_expr(env, e)?); }
+                for e in elements {
+                    let v = Self::eval_expr(env, e)?;
+                    Self::reject_stored_function(&v, "stored in an array")?;
+                    vals.push(v);
+                }
                 Ok(Value::array(vals, false))
             }
 
@@ -601,7 +651,8 @@ impl Environment {
                 for (k_expr, v_expr) in pairs {
                     let k_val = Self::eval_expr(env, k_expr)?;
                     let v_val = Self::eval_expr(env, v_expr)?;
-                    if let Value::Str(key) = k_val { map.insert(key, v_val); } 
+                    Self::reject_stored_function(&v_val, "stored in a dictionary")?;
+                    if let Value::Str(key) = k_val { map.insert(key, v_val); }
                     else { return Err(InterpErr::Err("Dictionary keys must evaluate to String".to_string())); }
                 }
                 Ok(Value::dict(map, false))

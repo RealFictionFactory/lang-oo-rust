@@ -167,11 +167,40 @@ Date: 2026-07-23
 
     This removes the redundant O(n) duplicate (peak memory drops by one full copy of the array) and the extra copy pass. Wall-clock time is dominated by the per-element callback/loop-body work and by the unavoidable per-element clone handed to the callback, so it is essentially unchanged — this is a memory/allocation fix, not a speed-up. The `RefCell` borrow safety that the original clone provided is preserved because no borrow is held while user code runs.
 
+15. **Function/environment reference cycles leaked memory** — fixed in *fix: weak function capture with transient-callback functions*  
+    Files: `src/interpreter.rs`, `src/stdlib.rs`  
+    A `Value::Function` stored a strong `Rc` to its captured environment, and that environment stored the function — the cycle `environment → function → environment`. Reference counting cannot collect cycles, so every scope that held a function which captured it leaked, and even the global environment was never freed. This was broad: any named function, `var f = fun(){}`, or lambda stored in a local container leaked its call's scope.
+
+    | Program (300,000 calls) | Before (peak RSS) | After |
+    | --- | --- | --- |
+    | local named helper `fun outer(){ fun h(){} ... }` | ~150 MB | ~2 MB |
+    | local lambda `var f = fun(){}` | ~150 MB | ~2 MB |
+    | lambda pushed into a local array | ~210 MB | ~2 MB |
+
+    A first attempt (capturing the global scope) removed the function-local leaks but left the global environment trapped in its own cycle, so it was not leak-free. The complete fix, agreed with the language owner, makes `Value::Function` hold a **`Weak<RefCell<Environment>>`** of its defining (lexical) scope, upgraded in `execute_function`. A weak reference never keeps a scope alive, so no cycle can form — dropping an environment's last external handle frees it (a regression test downgrades an environment, drops it, and asserts the `Weak` no longer upgrades).
+
+    To keep the weak capture sound, functions are restricted to **transient synchronous callbacks**: they may be passed as call arguments (and can see their lexical locals while running, e.g. `values.map(fun(x){ x * factor })`), but a function value may not be stored — `var`/`let`/assignment, `return`, array/dict literal, indexed write, and `push` all reject it (`reject_stored_function`), and named functions may only be declared at the top level. If a function is ever called after its scope has been dropped, the upgrade fails with a clean runtime error instead of misbehaving. The trade-off is that closures which outlive their scope (a returned counter over a local `count`) are not supported.
+
 ## Confirmed Issues
 
-1. **Closure/environment reference cycles leak memory**  
+1. **Nested function declarations are rejected only when executed**  
    File: `src/interpreter.rs`  
-   A function stores a strong `Rc` reference to its defining environment, and that environment stores the function. Function declarations and stored lambdas can therefore form `Rc` cycles that are never released.
+   The transient-callback model permits named functions only at the program's top level, but
+   `is_global_scope` is checked only when `Stmt::FuncDecl` is evaluated. A nested declaration
+   in unreachable code therefore passes parsing and execution:
+
+   ```
+   fun outer() {
+       if false {
+           fun nested() { return 1 }
+       }
+       return 2
+   }
+   ```
+
+   `outer()` returns `2` without reporting the prohibited declaration. Enforcing this as a
+   language restriction requires a recursive AST validation pass before execution, covering
+   function and lambda bodies, conditionals, match arms, loops, and error-handling blocks.
 
 ## Performance Concerns
 
@@ -179,5 +208,7 @@ Date: 2026-07-23
 
 ## Verification
 
-- `cargo test --all-targets` passed: 104 passed, 0 failed (68 at the time of review, plus 36 regression tests added with the fixes above).
+- `cargo test --all-targets` passed: 105 passed, 0 failed (68 at the time of review, plus 37 regression tests added with the fixes above).
+- A lifecycle test downgrades an environment to a `Weak`, drops its last strong handle, and asserts `upgrade()` returns `None` — the environment is reclaimed, confirming no reference cycle remains.
+- Peak-RSS checks confirmed the previously-leaking programs now run in constant ~2 MB.
 - `cargo clippy --all-targets -- -D warnings` currently fails with 35 diagnostics. Most are style/idiom diagnostics; they are not counted as functional findings above.

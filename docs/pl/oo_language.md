@@ -178,28 +178,59 @@ loop {
 ```
 
 ## 8. Funkcje
-Definiowane słowem kluczowym `fun`. Mogą zwracać wartość używając `return`. Obsługują rekurencję i mają własny zakres zmiennych. Funkcje są "obywatelami pierwszej klasy" (First-Class Citizens) – można je przypisywać do zmiennych (lambdy), przekazywać jako argumenty i zwracać z innych funkcji (domknięcia/closures).
+Funkcje nazwane definiuje się słowem kluczowym `fun` **na najwyższym poziomie** programu. Zwracają wartość przez `return`, obsługują rekurencję i mają własny zakres zmiennych.
 
 ```text
 fun add(a, b) {
   return a + b
 }
 
-// Lambda przypisana do zmiennej
-var double = fun(x) { return x * 2 }
-
-// Domknięcie (closure) pamiętające stan
-fun make_counter() {
-    var count = 0
-    return fun() {
-        count = count + 1
-        return count
-    }
+fun factorial(n) {
+  if n <= 1 { return 1 }
+  return n * factorial(n - 1)   // rekurencja
 }
-var c = make_counter()
-print(c()) // 1
-print(c()) // 2
+
+fun triple(x) { return x * 3 }
+
+// Funkcję nazwaną można przekazać do metody wyższego rzędu po nazwie
+print([1, 2, 3].map(triple))    // [3, 6, 9]
 ```
+
+### Lambdy to natychmiastowe callbacki
+Lambda to funkcja anonimowa zapisana w miejscu użycia: `fun(parametry) { ciało }`. Lambdy istnieją po to, by **przekazywać je bezpośrednio jako argumenty-callbacki** — do `map`, `filter` lub własnych funkcji — i są wywoływane natychmiast w trakcie tego wywołania.
+
+```text
+var nums = [1, 2, 3]
+print(nums.map(fun(x) { return x * 2 }))          // [2, 4, 6]
+print(nums.filter(fun(x) { return x % 2 == 1 }))  // [1, 3]
+
+fun apply(f, x) { return f(x) }                    // funkcja wyższego rzędu
+print(apply(fun(y) { return y + 10 }, 5))          // 15
+```
+
+Callback **widzi zmienne zakresu, w którym został napisany** w trakcie działania — zarówno lokalne, jak i globalne — ponieważ ten zakres jest wciąż aktywny podczas wywołania:
+
+```text
+fun scale(values, factor) {
+    return values.map(fun(x) { return x * factor })  // widzi lokalne `factor`
+}
+print(scale([1, 2, 3], 10)) // [10, 20, 30]
+```
+
+### Funkcji nie da się przechowywać
+Aby uchronić język przed cyklami referencji powodującymi wyciek pamięci, wartość funkcyjną można tylko **przekazać jako argument-callback**. Nie można jej przechować: przypisanie do zmiennej, zwrócenie, umieszczenie w tablicy lub słowniku, albo `push` — to wszystko błędy. Funkcje nazwane można deklarować wyłącznie na najwyższym poziomie (nie zagnieżdżone w innej funkcji).
+
+```text
+var f = fun(x) { return x }      // Błąd: funkcji nie można przypisać do zmiennej
+fun outer() {
+    return fun() { return 1 }    // Błąd: funkcji nie można zwrócić
+}
+fun outer2() {
+    fun helper() { return 1 }    // Błąd: funkcje można deklarować tylko na najwyższym poziomie
+}
+```
+
+W konsekwencji domknięcia, które przeżywają swój zakres (np. licznik pamiętający własny `count` i zwrócony do późniejszego użycia), nie są wspierane. Zamiast tego przekaż stan jako argument.
 
 ## 9. Tablice
 Tworzone nawiasami kwadratowymi `[]`. Indeksowane od `0`. Tablica `var` jest mutowalna, tablica `let` — niemutowalna (patrz *Mutowalność i kopiowanie*). Zagnieżdżone przypisanie indeksowane jest obsługiwane.

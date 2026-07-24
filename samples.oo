@@ -161,23 +161,18 @@ var user_role = user["role"] ?? "guest"
 var user_name = user["name"] ?? "Unknown"
 print("User: ", user_name, ", Role: ", user_role)
 
-// 20. Test Lambdas (Anonymous Functions)
-print("\n--- Lambdas ---")
-var double = fun(x) { return x * 2 }
-print("Double of 15 is: ", double(15))
+// 20. Lambdas as immediate callbacks (they may not be stored in a variable)
+print("\n--- Lambdas as callbacks ---")
+var nums_l = [1, 2, 3]
+print("Doubled inline: ", nums_l.map(fun(x) { return x * 2 }))
 
-// 21. Test Closures (Capturing State)
-print("\n--- Closures ---")
-fun make_counter() {
-    var count = 0
-    return fun() {
-        count = count + 1
-        return count
-    }
+// 21. A callback lambda sees its lexical scope (locals and globals) while it runs
+print("\n--- Lambdas and scope ---")
+var tax_rate = 2
+fun with_tax(prices) {
+    return prices.map(fun(p) { return p * tax_rate })
 }
-
-var counter1 = make_counter()
-print("Counter calls: ", counter1(), counter1(), counter1())
+print("Scaled by tax_rate: ", with_tax([10, 20, 30]))
 
 // 22. Test String Methods (trim, contains, replace, split)
 print("\n--- String Methods ---")

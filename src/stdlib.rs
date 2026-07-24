@@ -180,6 +180,10 @@ fn ext_push(receiver: Value, mut args: Vec<Value>) -> InterpResult<Value> {
         if immutable.get() {
             return Err(InterpErr::Err("Cannot push to an immutable array (declared with 'let')".to_string()));
         }
+        if matches!(args[0], Value::Function(..) | Value::Builtin(_)) {
+            return Err(InterpErr::Err(
+                "A function cannot be stored in an array; functions may only be passed directly as callback arguments".to_string()));
+        }
         let element = Environment::deep_bind(args.remove(0), false);
         arr.borrow_mut().push(element);
         Ok(Value::Null)

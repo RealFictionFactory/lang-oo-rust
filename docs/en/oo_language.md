@@ -178,28 +178,59 @@ loop {
 ```
 
 ## 8. Functions
-Defined using the `fun` keyword. They can return a value using `return`. They support recursion and have their own local scope. Functions are First-Class Citizens, meaning they can be assigned to variables (lambdas), passed as arguments, and returned from other functions (closures).
+Named functions are defined with the `fun` keyword **at the top level** of a program. They return a value using `return`, support recursion, and have their own local scope.
 
 ```text
 fun add(a, b) {
   return a + b
 }
 
-// Lambda assigned to a variable
-var double = fun(x) { return x * 2 }
-
-// Closure capturing state
-fun make_counter() {
-    var count = 0
-    return fun() {
-        count = count + 1
-        return count
-    }
+fun factorial(n) {
+  if n <= 1 { return 1 }
+  return n * factorial(n - 1)   // recursion
 }
-var c = make_counter()
-print(c()) // 1
-print(c()) // 2
+
+fun triple(x) { return x * 3 }
+
+// A named function can be passed to a higher-order method by name
+print([1, 2, 3].map(triple))    // [3, 6, 9]
 ```
+
+### Lambdas are immediate callbacks
+A lambda is an anonymous function written inline: `fun(params) { body }`. Lambdas exist to be **passed directly as callback arguments** — to `map`, `filter`, or to your own functions — and are invoked immediately during that call.
+
+```text
+var nums = [1, 2, 3]
+print(nums.map(fun(x) { return x * 2 }))          // [2, 4, 6]
+print(nums.filter(fun(x) { return x % 2 == 1 }))  // [1, 3]
+
+fun apply(f, x) { return f(x) }                    // a higher-order function
+print(apply(fun(y) { return y + 10 }, 5))          // 15
+```
+
+A callback **can see the variables of the scope it is written in** while it runs — locals and globals alike — because that scope is still active during the call:
+
+```text
+fun scale(values, factor) {
+    return values.map(fun(x) { return x * factor })  // sees the local `factor`
+}
+print(scale([1, 2, 3], 10)) // [10, 20, 30]
+```
+
+### Functions are not stored
+To keep the language free of memory-leaking reference cycles, a function value may only be **passed as a callback argument**. It cannot be stored: assigning one to a variable, returning it, putting it in an array or dictionary, or `push`-ing it are all errors. Named functions may only be declared at the top level (not nested inside another function).
+
+```text
+var f = fun(x) { return x }      // Error: a function cannot be assigned to a variable
+fun outer() {
+    return fun() { return 1 }    // Error: a function cannot be returned
+}
+fun outer2() {
+    fun helper() { return 1 }    // Error: functions can only be declared at the top level
+}
+```
+
+Consequently, closures that outlive their scope (such as a counter that remembers its own `count` and is returned for later use) are not supported. Pass state in as an argument instead.
 
 ## 9. Arrays
 Created using square brackets `[]`. Indexed from `0`. A `var` array is mutable; a `let` array is immutable (see *Mutability and Copying*). Nested indexed assignment is supported.
